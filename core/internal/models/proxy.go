@@ -5,10 +5,20 @@ import "time"
 // Proxy represents a proxy server
 type Proxy struct {
 	ID                 int       `json:"id"`
+	Name               string    `json:"name,omitempty"`
 	Address            string    `json:"address"`
 	Protocol           string    `json:"protocol"`
 	Username           *string   `json:"username,omitempty"`
 	Password           *string   `json:"-"` // Never expose password in JSON
+	Provider           string    `json:"provider,omitempty"`
+	TargetCountry      *string   `json:"target_country,omitempty"`
+	SessionStrategy    string    `json:"session_strategy,omitempty"` // none | per_request | fixed
+	SessionID          *string   `json:"session_id,omitempty"`
+	LastExitIP         *string   `json:"last_exit_ip,omitempty"`
+	LastExitCountry    *string   `json:"last_exit_country,omitempty"`
+	LastExitASN        *int      `json:"last_exit_asn,omitempty"`
+	LastExitOrg        *string   `json:"last_exit_org,omitempty"`
+	LastExitObservedAt *time.Time `json:"last_exit_observed_at,omitempty"`
 	Status             string    `json:"status"`
 	Requests           int64     `json:"requests"`
 	SuccessfulRequests int64     `json:"-"`
@@ -33,10 +43,20 @@ type Proxy struct {
 
 // ProxyWithStats represents a proxy with calculated statistics
 type ProxyWithStats struct {
-	ID              int        `json:"id"`
-	Address         string     `json:"address"`
-	Protocol        string     `json:"protocol"`
-	Username        *string    `json:"username,omitempty"`
+	ID               int        `json:"id"`
+	Name             string     `json:"name,omitempty"`
+	Address          string     `json:"address"`
+	Protocol         string     `json:"protocol"`
+	Username         *string    `json:"username,omitempty"`
+	Provider         string     `json:"provider,omitempty"`
+	TargetCountry    *string    `json:"target_country,omitempty"`
+	SessionStrategy string     `json:"session_strategy,omitempty"`
+	SessionID        *string    `json:"session_id,omitempty"`
+	LastExitIP       *string    `json:"last_exit_ip,omitempty"`
+	LastExitCountry  *string    `json:"last_exit_country,omitempty"`
+	LastExitASN      *int       `json:"last_exit_asn,omitempty"`
+	LastExitOrg      *string    `json:"last_exit_org,omitempty"`
+	LastExitObservedAt *time.Time `json:"last_exit_observed_at,omitempty"`
 	Status          string     `json:"status"`
 	Requests        int64      `json:"requests"`
 	SuccessRate     float64    `json:"success_rate"`
@@ -56,21 +76,31 @@ type ProxyWithStats struct {
 
 // CreateProxyRequest represents a request to create a proxy
 type CreateProxyRequest struct {
-	Address  string   `json:"address" validate:"required"`
-	Protocol string   `json:"protocol" validate:"required,oneof=http https socks4 socks4a socks5"`
-	Username *string  `json:"username,omitempty"`
-	Password *string  `json:"password,omitempty"`
-	Tags     []string `json:"tags,omitempty"`
-	SourceID *int     `json:"source_id,omitempty"` // set internally when importing from a source
+	Name            string   `json:"name,omitempty"`
+	Address         string   `json:"address" validate:"required"`
+	Protocol        string   `json:"protocol" validate:"required,oneof=http https socks4 socks4a socks5"`
+	Username        *string  `json:"username,omitempty"`
+	Password        *string  `json:"password,omitempty"`
+	Provider        string   `json:"provider,omitempty"`
+	TargetCountry   *string  `json:"target_country,omitempty"`
+	SessionStrategy string   `json:"session_strategy,omitempty" validate:"omitempty,oneof=none per_request fixed"`
+	SessionID       *string  `json:"session_id,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	SourceID        *int     `json:"source_id,omitempty"` // set internally when importing from a source
 }
 
 // UpdateProxyRequest represents a request to update a proxy
 type UpdateProxyRequest struct {
-	Address  string   `json:"address"`
-	Protocol string   `json:"protocol" validate:"omitempty,oneof=http https socks4 socks4a socks5"`
-	Username *string  `json:"username,omitempty"`
-	Password *string  `json:"password,omitempty"`
-	Tags     []string `json:"tags,omitempty"`
+	Name            *string  `json:"name,omitempty"`
+	Address         string   `json:"address"`
+	Protocol        string   `json:"protocol" validate:"omitempty,oneof=http https socks4 socks4a socks5"`
+	Username        *string  `json:"username,omitempty"`
+	Password        *string  `json:"password,omitempty"`
+	Provider        *string  `json:"provider,omitempty"`
+	TargetCountry   *string  `json:"target_country,omitempty"`
+	SessionStrategy *string  `json:"session_strategy,omitempty" validate:"omitempty,oneof=none per_request fixed"`
+	SessionID       *string  `json:"session_id,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
 }
 
 // BulkCreateResult is the result of a bulk proxy import
