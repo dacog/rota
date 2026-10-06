@@ -83,7 +83,8 @@ func (h *HealthChecker) CheckProxy(ctx context.Context, proxy *models.Proxy, imm
 	}
 
 	// Create HTTP client with proxy
-	transport, err := h.createTransport(proxy)
+	effectiveProxy, _ := PrepareProxyForRequest(proxy)
+	transport, err := h.createTransport(effectiveProxy)
 	if err != nil {
 		result.Status = "failed"
 		errMsg := fmt.Sprintf("failed to create transport: %v", err)
