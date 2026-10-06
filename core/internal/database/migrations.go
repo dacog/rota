@@ -558,6 +558,77 @@ var migrations = []Migration{
 		`,
 		Down: `DROP TABLE IF EXISTS system_secrets;`,
 	},
+	{
+		Version:     26,
+		Description: "Support logical provider proxies and observed exit identity",
+		Up: `
+			ALTER TABLE proxies
+				ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS provider VARCHAR(50) NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS target_country VARCHAR(3),
+				ADD COLUMN IF NOT EXISTS session_strategy VARCHAR(20) NOT NULL DEFAULT 'none',
+				ADD COLUMN IF NOT EXISTS session_id VARCHAR(255),
+				ADD COLUMN IF NOT EXISTS last_exit_ip VARCHAR(64),
+				ADD COLUMN IF NOT EXISTS last_exit_country VARCHAR(3),
+				ADD COLUMN IF NOT EXISTS last_exit_asn INTEGER,
+				ADD COLUMN IF NOT EXISTS last_exit_org VARCHAR(255),
+				ADD COLUMN IF NOT EXISTS last_exit_observed_at TIMESTAMP;
+
+			ALTER TABLE proxies DROP CONSTRAINT IF EXISTS unique_proxy_address_protocol;
+			CREATE UNIQUE INDEX IF NOT EXISTS unique_proxy_address_protocol_username
+				ON proxies(address, protocol, COALESCE(username, ''));
+
+			CREATE INDEX IF NOT EXISTS idx_proxies_provider ON proxies(provider);
+			CREATE INDEX IF NOT EXISTS idx_proxies_target_country ON proxies(target_country);
+			ALTER TABLE proxies ADD CONSTRAINT proxies_session_strategy_check
+				CHECK (session_strategy IN ('none', 'per_request', 'fixed'));
+		`,
+		Down: `
+			ALTER TABLE proxies DROP CONSTRAINT IF EXISTS proxies_session_strategy_check;
+			DROP INDEX IF EXISTS idx_proxies_target_country;
+			DROP INDEX IF EXISTS idx_proxies_provider;
+			DROP INDEX IF EXISTS unique_proxy_address_protocol_username;
+			ALTER TABLE proxies
+				DROP COLUMN IF EXISTS last_exit_observed_at,
+				DROP COLUMN IF EXISTS last_exit_org,
+				DROP COLUMN IF EXISTS last_exit_asn,
+				DROP COLUMN IF EXISTS last_exit_country,
+				DROP COLUMN IF EXISTS last_exit_ip,
+				DROP COLUMN IF EXISTS session_id,
+				DROP COLUMN IF EXISTS session_strategy,
+				DROP COLUMN IF EXISTS target_country,
+				DROP COLUMN IF EXISTS provider,
+				DROP COLUMN IF EXISTS name;
+			ALTER TABLE proxies ADD CONSTRAINT unique_proxy_address_protocol UNIQUE (address, protocol);
+		`,
+	},
+	{
+		Version:     27,
+		Description: "Add project-aware proxy usage and byte accounting",
+		Up: `
+			ALTER TABLE proxy_requests
+				ADD COLUMN IF NOT EXISTS proxy_user_id INTEGER REFERENCES proxy_users(id) ON DELETE SET NULL,
+				ADD COLUMN IF NOT EXISTS pool_id INTEGER REFERENCES proxy_pools(id) ON DELETE SET NULL,
+				ADD COLUMN IF NOT EXISTS bytes_up BIGINT NOT NULL DEFAULT 0,
+				ADD COLUMN IF NOT EXISTS bytes_down BIGINT NOT NULL DEFAULT 0,
+				ADD COLUMN IF NOT EXISTS provider_session_id VARCHAR(255);
+
+			CREATE INDEX IF NOT EXISTS idx_proxy_requests_user_ts
+				ON proxy_requests(proxy_user_id, timestamp DESC);
+			CREATE INDEX IF NOT EXISTS idx_proxy_requests_pool_ts
+				ON proxy_requests(pool_id, timestamp DESC);
+		`,
+		Down: `
+			DROP INDEX IF EXISTS idx_proxy_requests_pool_ts;
+			DROP INDEX IF EXISTS idx_proxy_requests_user_ts;
+			ALTER TABLE proxy_requests
+				DROP COLUMN IF EXISTS provider_session_id,
+				DROP COLUMN IF EXISTS bytes_down,
+				DROP COLUMN IF EXISTS bytes_up,
+				DROP COLUMN IF EXISTS pool_id,
+				DROP COLUMN IF EXISTS proxy_user_id;
+		`,
+	},
 }
 
 // Migrate runs all pending migrations
