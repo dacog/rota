@@ -387,6 +387,9 @@ func (h *UpstreamProxyHandler) tryProxyWithRetries(req *http.Request, ctx contex
 		var err error
 		if UsesPerRequestSession(selectedProxy) {
 			transport, err = CreateProxyTransport(effectiveProxy)
+			if err == nil {
+				transport.DisableKeepAlives = true
+			}
 		} else {
 			transport, err = GetOrCreateTransport(effectiveProxy)
 		}
