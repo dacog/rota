@@ -23,8 +23,14 @@ The Bright Data base username can be stored without `-country-xx` and
 
 - `none`: keep the provider's default behavior.
 - `per_request`: generate a new Bright Data session id and a fresh upstream
-  connection for every outgoing request/CONNECT. This is the intended Columbus
-  mode when validating many URLs quickly.
+  connection for every outgoing HTTP proxy request or HTTPS CONNECT. This is
+  the intended Columbus mode when validating many URLs quickly.
+
+For HTTPS, one CONNECT tunnel can carry multiple encrypted requests to the same
+origin if the client reuses connections. Rota cannot see those inner request
+boundaries without TLS interception. Columbus should therefore close/avoid
+reusing proxy tunnels when it requires one exit per URL, or use the diagnostics
+probe endpoint, which creates a fresh provider session per URL/attempt.
 - `fixed`: use `session_id` repeatedly. This is intended for debugging,
   especially direct-Bright-Data vs Rota comparisons using the same provider
   session.
