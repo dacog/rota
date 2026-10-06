@@ -720,7 +720,7 @@ function ProxiesPage() {
                   <SelectTrigger id="session-strategy"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Provider default</SelectItem>
-                    <SelectItem value="per_request">Fresh exit per request</SelectItem>
+                    <SelectItem value="per_request">Fresh session per request / CONNECT</SelectItem>
                     <SelectItem value="fixed">Fixed session (debug)</SelectItem>
                   </SelectContent>
                 </Select>
@@ -733,7 +733,7 @@ function ProxiesPage() {
               )}
             </div>
             <p className="text-muted-foreground text-[0.6875rem] leading-4">
-              Bright Data: target country and session are materialized into the upstream username. Fresh per request avoids reusing one peer while validating many URLs.
+              Bright Data: target country and session are materialized into the upstream username. Fresh per request/CONNECT avoids upstream reuse; HTTPS clients must open a new CONNECT when they require one exit per URL.
             </p>
             <div className="space-y-1.5">
               <Label htmlFor="tags">Tags (optional)</Label>
@@ -790,7 +790,7 @@ function ProxiesPage() {
                     <SelectTrigger id="edit-session-strategy"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Provider default</SelectItem>
-                      <SelectItem value="per_request">Fresh exit per request</SelectItem>
+                      <SelectItem value="per_request">Fresh session per request / CONNECT</SelectItem>
                       <SelectItem value="fixed">Fixed session (debug)</SelectItem>
                     </SelectContent>
                   </Select>
