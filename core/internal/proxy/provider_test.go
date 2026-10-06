@@ -21,7 +21,7 @@ func TestPrepareProxyForRequest_BrightDataPerRequest(t *testing.T) {
 	}
 
 	first, session1 := PrepareProxyForRequest(p)
-	second, session2 := PrepareProxyForRequest(p)
+	_, session2 := PrepareProxyForRequest(p)
 
 	if session1 == "" || session2 == "" {
 		t.Fatal("expected generated provider sessions")
