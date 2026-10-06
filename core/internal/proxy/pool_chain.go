@@ -143,6 +143,9 @@ func (c *PoolChain) SendWithRetry(
 
 		effectiveProxy, sessionID := PrepareProxyForRequest(selectedProxy)
 		transport, err := CreateProxyTransport(effectiveProxy)
+		if err == nil && UsesPerRequestSession(selectedProxy) {
+			transport.DisableKeepAlives = true
+		}
 		if err != nil {
 			// Transport-build failure is a local/config error, not a proxy fault —
 			// do not count it toward eviction (AUD-11).
