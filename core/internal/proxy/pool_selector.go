@@ -38,7 +38,8 @@ func NewPoolSelector(db *database.DB, pool models.ProxyPool) *PoolSelector {
 // Refresh reloads only active/idle proxies that belong to this pool.
 func (ps *PoolSelector) Refresh(ctx context.Context) error {
 	rows, err := ps.db.Pool.Query(ctx, `
-		SELECT p.id, p.address, p.protocol, p.username, p.password,
+		SELECT p.id, p.name, p.address, p.protocol, p.username, p.password,
+		       p.provider, p.target_country, p.session_strategy, p.session_id,
 		       p.status, p.requests, p.successful_requests, p.failed_requests,
 		       p.avg_response_time, p.last_check, p.last_error, p.created_at, p.updated_at
 		FROM proxies p
@@ -56,7 +57,8 @@ func (ps *PoolSelector) Refresh(ctx context.Context) error {
 	for rows.Next() {
 		var p models.Proxy
 		err := rows.Scan(
-			&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Password,
+			&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Password,
+			&p.Provider, &p.TargetCountry, &p.SessionStrategy, &p.SessionID,
 			&p.Status, &p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
 			&p.AvgResponseTime, &p.LastCheck, &p.LastError, &p.CreatedAt, &p.UpdatedAt,
 		)
