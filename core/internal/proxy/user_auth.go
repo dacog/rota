@@ -31,6 +31,7 @@ var UserChainContextKey = userChainKey{}
 // This avoids bcrypt on every request — bcrypt only runs on first auth or after TTL expiry.
 type userEntry struct {
 	chain     *PoolChain
+	user      *models.ProxyUser
 	expiresAt time.Time
 	// passwordHash is the bcrypt hash we verified against. If the user changes their
 	// password the hash changes, causing a cache miss on next TTL expiry.
@@ -107,7 +108,7 @@ func (m *UserAuthMiddleware) HandleRequest(req *http.Request) (*http.Request, *h
 		return req, nil
 	}
 
-	chain, err := m.resolve(req.Context(), username, password)
+	chain, user, err := m.resolve(req.Context(), username, password)
 	if err != nil {
 		m.logger.Warn("user auth failed", "username", username, "err", err)
 		// Credentials were supplied but didn't match a proxy_user. Fall back to
@@ -127,6 +128,7 @@ func (m *UserAuthMiddleware) HandleRequest(req *http.Request) (*http.Request, *h
 
 	// Attach chain to context and strip the Proxy-Authorization header
 	newCtx := context.WithValue(req.Context(), UserChainContextKey, chain)
+	newCtx = context.WithValue(newCtx, models.ProxyUserContextKey, user)
 	req = req.WithContext(newCtx)
 	req.Header.Del("Proxy-Authorization")
 	return req, nil
@@ -142,7 +144,7 @@ func (m *UserAuthMiddleware) HandleConnect(req *http.Request) (*http.Request, *h
 // On cache hits the incoming password is compared directly against the cached
 // bcrypt hash using bcrypt.CompareHashAndPassword — but this only happens once
 // per 60-second window, not on every request.
-func (m *UserAuthMiddleware) resolve(ctx context.Context, username, password string) (*PoolChain, error) {
+func (m *UserAuthMiddleware) resolve(ctx context.Context, username, password string) (*PoolChain, *models.ProxyUser, error) {
 	now := time.Now()
 
 	// ── Fast path: cache hit within TTL ──────────────────────────────────
@@ -156,31 +158,32 @@ func (m *UserAuthMiddleware) resolve(ctx context.Context, username, password str
 		// For even higher throughput, consider storing a fast HMAC of password+secret
 		// instead — but bcrypt cache is sufficient for most workloads.
 		if err := bcryptCompare(entry.verifiedPwHash, password); err != nil {
-			return nil, fmt.Errorf("invalid credentials")
+			return nil, nil, fmt.Errorf("invalid credentials")
 		}
-		return entry.chain, nil
+		return entry.chain, entry.user, nil
 	}
 
 	// ── Slow path: full DB lookup + bcrypt (runs at most once per 60s per user) ──
 	user, err := m.userRepo.Authenticate(ctx, username, password)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	chain, err := m.buildChain(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	m.mu.Lock()
 	m.cache[username] = userEntry{
 		chain:          chain,
+		user:           user,
 		expiresAt:      now.Add(60 * time.Second),
 		verifiedPwHash: user.PasswordHash,
 	}
 	m.mu.Unlock()
 
-	return chain, nil
+	return chain, user, nil
 }
 
 // buildChain constructs an ordered PoolChain for a user: [mainPool, ...fallbackPools].
