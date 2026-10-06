@@ -129,7 +129,10 @@ func (h *DiagnosticsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"results": results}) //nolint:errcheck
+	json.NewEncoder(w).Encode(map[string]any{
+		"results": results,
+		"matrix":  summarizeDiagnostics(results),
+	}) //nolint:errcheck
 }
 
 func (h *DiagnosticsHandler) probeOnce(
@@ -299,4 +302,57 @@ func (h *DiagnosticsHandler) persistExit(ctx context.Context, obs models.ProxyEx
 	if err != nil {
 		h.logger.Warn("failed to persist exit observation", "proxy_id", obs.ProxyID, "error", err)
 	}
+}
+
+
+func summarizeDiagnostics(results []models.DiagnosticProbeResult) []models.DiagnosticCountrySummary {
+	type key struct {
+		url     string
+		country string
+	}
+	byKey := make(map[key]*models.DiagnosticCountrySummary)
+	order := make([]key, 0)
+
+	for _, result := range results {
+		country := result.ConfiguredCountry
+		if country == "" {
+			country = result.ExitCountry
+		}
+		if country == "" {
+			country = "UNKNOWN"
+		}
+		k := key{url: result.URL, country: country}
+		s, ok := byKey[k]
+		if !ok {
+			s = &models.DiagnosticCountrySummary{URL: result.URL, Country: country}
+			byKey[k] = s
+			order = append(order, k)
+		}
+		s.Attempts++
+		switch {
+		case result.Error != "":
+			s.Errors++
+		case result.HTTPStatus >= 200 && result.HTTPStatus < 400:
+			s.Reachable++
+		case result.HTTPStatus == http.StatusForbidden:
+			s.Forbidden403++
+		default:
+			s.OtherHTTP++
+		}
+	}
+
+	out := make([]models.DiagnosticCountrySummary, 0, len(order))
+	for _, k := range order {
+		s := byKey[k]
+		switch {
+		case s.Reachable > 0:
+			s.Assessment = "reachable"
+		case s.Forbidden403 > 0 && s.Forbidden403+s.Errors == s.Attempts && s.Errors == 0:
+			s.Assessment = "blocked_sample"
+		default:
+			s.Assessment = "inconclusive"
+		}
+		out = append(out, *s)
+	}
+	return out
 }
