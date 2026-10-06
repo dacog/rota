@@ -192,6 +192,20 @@ export default function UsersPage() {
     toast.success("Proxy URL copied", "Replace *** with the user's password")
   }
 
+  const exportUsage = async (u: ProxyUser) => {
+    try {
+      const blob = await api.exportUsageCSV({ project: u.username })
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = href
+      a.download = `rota-usage-${u.username}.csv`
+      a.click()
+      URL.revokeObjectURL(href)
+    } catch (error) {
+      toast.error("Usage export failed", error instanceof Error ? error.message : "Unknown error")
+    }
+  }
+
   const openApiLinkModal = (u: ProxyUser) => {
     setApiLinkUser(u)
     setApiLinkPool("default")
@@ -307,6 +321,7 @@ export default function UsersPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => copyProxyURL(u)}>Copy proxy URL</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => exportUsage(u)}>Export project usage CSV</DropdownMenuItem>
                         {u.allow_working_proxies_export && (
                           <DropdownMenuItem onClick={() => openApiLinkModal(u)}>Export link…</DropdownMenuItem>
                         )}
