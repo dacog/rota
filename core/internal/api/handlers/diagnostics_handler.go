@@ -14,7 +14,10 @@ import (
 	"github.com/alpkeskin/rota/core/pkg/logger"
 )
 
-const brightDataGeoURL = "https://geo.brdtest.com/mygeo.json"
+const (
+	brightDataGeoURL = "https://geo.brdtest.com/mygeo.json"
+	publicIPURL      = "https://api.ipify.org"
+)
 
 type DiagnosticsHandler struct {
 	proxyRepo *repository.ProxyRepository
@@ -35,6 +38,8 @@ type brightDataGeoResponse struct {
 	} `json:"asn"`
 }
 
+// Exit observes the current exit identity for explicitly selected logical
+// proxies. This does not affect proxy health and is safe for rotating providers.
 func (h *DiagnosticsHandler) Exit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProxyIDs []int `json:"proxy_ids"`
@@ -50,26 +55,24 @@ func (h *DiagnosticsHandler) Exit(w http.ResponseWriter, r *http.Request) {
 		if err != nil || p == nil {
 			continue
 		}
+
 		effective, sessionID := proxycore.PrepareProxyForRequest(p)
-		geo, err := h.observeExit(r.Context(), effective)
+		transport, err := proxycore.CreateProxyTransport(effective)
+		if err != nil {
+			h.logger.Warn("exit observation transport failed", "proxy_id", id, "error", err)
+			continue
+		}
+		if proxycore.UsesPerRequestSession(p) {
+			transport.DisableKeepAlives = true
+		}
+		client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+		obs, err := h.observeExitWithClient(r.Context(), client, p, sessionID)
+		transport.CloseIdleConnections()
 		if err != nil {
 			h.logger.Warn("exit observation failed", "proxy_id", id, "error", err)
 			continue
 		}
-		obs := models.ProxyExitObservation{
-			ProxyID:          id,
-			ProxyName:        p.Name,
-			ExitIP:           geoIPString(geo),
-			ExitCountry:      strings.ToUpper(geo.Country),
-			ExitASN:          geo.ASN.ASNum,
-			ExitOrganization: geo.ASN.OrgName,
-			SessionID:        sessionID,
-			ObservedAt:       time.Now().UTC(),
-		}
-		if p.TargetCountry != nil {
-			obs.ConfiguredCountry = strings.ToUpper(*p.TargetCountry)
-			obs.CountryMatches = strings.EqualFold(obs.ConfiguredCountry, obs.ExitCountry)
-		}
+
 		h.persistExit(r.Context(), obs)
 		out = append(out, obs)
 	}
@@ -78,6 +81,13 @@ func (h *DiagnosticsHandler) Exit(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"exits": out}) //nolint:errcheck
 }
 
+// Probe explicitly performs target HTTP requests from Rota. Unlike normal HTTPS
+// proxy traffic this endpoint is the TLS client, so it can observe the target
+// response status (200/403/etc.) without MITM.
+//
+// With session_strategy=per_request every URL+attempt gets a fresh provider
+// session. With session_strategy=fixed the configured session id is reused,
+// which is useful for debugging direct-vs-Rota behavior on the same peer.
 func (h *DiagnosticsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	var req models.DiagnosticProbeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -107,87 +117,14 @@ func (h *DiagnosticsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		if err != nil || p == nil {
 			continue
 		}
-		for attempt := 0; attempt < req.Attempts; attempt++ {
-			// One prepared session per attempt: geo observation and all target
-			// URLs in this attempt use the same provider session/exit.
-			effective, sessionID := proxycore.PrepareProxyForRequest(p)
-			transport, err := proxycore.CreateProxyTransport(effective)
-			if err != nil {
-				continue
-			}
-			client := &http.Client{
-				Transport: transport,
-				Timeout:   45 * time.Second,
-				CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-					if !req.FollowRedirects {
-						return http.ErrUseLastResponse
-					}
-					if len(via) >= 10 {
-						return fmt.Errorf("stopped after 10 redirects")
-					}
-					return nil
-				},
-			}
 
-			var geo brightDataGeoResponse
-			if strings.EqualFold(p.Provider, "brightdata") {
-				if g, err := observeExitWithClient(r.Context(), client); err == nil {
-					geo = g
-					obs := models.ProxyExitObservation{
-						ProxyID:          p.ID,
-						ProxyName:        p.Name,
-						ExitIP:           geoIPString(g),
-						ExitCountry:      strings.ToUpper(g.Country),
-						ExitASN:          g.ASN.ASNum,
-						ExitOrganization: g.ASN.OrgName,
-						SessionID:        sessionID,
-						ObservedAt:       time.Now().UTC(),
-					}
-					if p.TargetCountry != nil {
-						obs.ConfiguredCountry = strings.ToUpper(*p.TargetCountry)
-						obs.CountryMatches = strings.EqualFold(obs.ConfiguredCountry, obs.ExitCountry)
-					}
-					h.persistExit(r.Context(), obs)
-				}
-			}
-
-			for _, targetURL := range req.URLs {
-				testedAt := time.Now().UTC()
-				started := time.Now()
-				result := models.DiagnosticProbeResult{
-					URL:         targetURL,
-					ProxyID:     p.ID,
-					ProxyName:   p.Name,
-					Provider:    p.Provider,
-					SessionID:   sessionID,
-					ExitIP:      geoIPString(geo),
-					ExitCountry: strings.ToUpper(geo.Country),
-					ExitASN:     geo.ASN.ASNum,
-					TestedAt:    testedAt,
-				}
-				if p.TargetCountry != nil {
-					result.ConfiguredCountry = strings.ToUpper(*p.TargetCountry)
-				}
-
-				httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
-				if err != nil {
-					result.Error = err.Error()
-					results = append(results, result)
-					continue
-				}
-				httpReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Rota-Diagnostics/1.0)")
-				resp, err := client.Do(httpReq)
-				result.DurationMS = time.Since(started).Milliseconds()
-				if err != nil {
-					result.Error = err.Error()
-				} else {
-					result.HTTPStatus = resp.StatusCode
-					result.FinalURL = resp.Request.URL.String()
-					resp.Body.Close()
-				}
+		// URL is deliberately outside attempts so each URL can be sampled N times
+		// while per_request still materializes a fresh session every time.
+		for _, targetURL := range req.URLs {
+			for attempt := 0; attempt < req.Attempts; attempt++ {
+				result := h.probeOnce(r.Context(), p, targetURL, req.FollowRedirects)
 				results = append(results, result)
 			}
-			transport.CloseIdleConnections()
 		}
 	}
 
@@ -195,17 +132,122 @@ func (h *DiagnosticsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"results": results}) //nolint:errcheck
 }
 
-func (h *DiagnosticsHandler) observeExit(ctx context.Context, p *models.Proxy) (brightDataGeoResponse, error) {
-	transport, err := proxycore.CreateProxyTransport(p)
+func (h *DiagnosticsHandler) probeOnce(
+	ctx context.Context,
+	p *models.Proxy,
+	targetURL string,
+	followRedirects bool,
+) models.DiagnosticProbeResult {
+	testedAt := time.Now().UTC()
+	effective, sessionID := proxycore.PrepareProxyForRequest(p)
+	result := models.DiagnosticProbeResult{
+		URL:       targetURL,
+		ProxyID:   p.ID,
+		ProxyName: p.Name,
+		Provider:  p.Provider,
+		SessionID: sessionID,
+		TestedAt:  testedAt,
+	}
+	if p.TargetCountry != nil {
+		result.ConfiguredCountry = strings.ToUpper(*p.TargetCountry)
+	}
+
+	transport, err := proxycore.CreateProxyTransport(effective)
 	if err != nil {
-		return brightDataGeoResponse{}, err
+		result.Error = err.Error()
+		return result
 	}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
-	return observeExitWithClient(ctx, client)
+	if proxycore.UsesPerRequestSession(p) {
+		// Do not let Go reuse an upstream TCP connection across logical requests
+		// when the selected provider session is explicitly "fresh per request".
+		transport.DisableKeepAlives = true
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   45 * time.Second,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if !followRedirects {
+				return http.ErrUseLastResponse
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+
+	// Use the same prepared provider session for exit observation and target
+	// request so the reported geo belongs to the peer used for this probe.
+	if proxycore.IsBrightData(p) {
+		if obs, err := h.observeExitWithClient(ctx, client, p, sessionID); err == nil {
+			result.ExitIP = obs.ExitIP
+			result.ExitCountry = obs.ExitCountry
+			result.ExitASN = obs.ExitASN
+			h.persistExit(ctx, obs)
+		}
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Rota-Diagnostics/1.0)")
+
+	started := time.Now()
+	resp, err := client.Do(httpReq)
+	result.DurationMS = time.Since(started).Milliseconds()
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	defer resp.Body.Close()
+
+	result.HTTPStatus = resp.StatusCode
+	result.FinalURL = resp.Request.URL.String()
+	return result
 }
 
-func observeExitWithClient(ctx context.Context, client *http.Client) (brightDataGeoResponse, error) {
+func (h *DiagnosticsHandler) observeExitWithClient(
+	ctx context.Context,
+	client *http.Client,
+	p *models.Proxy,
+	sessionID string,
+) (models.ProxyExitObservation, error) {
+	geo, err := fetchBrightDataGeo(ctx, client)
+	if err != nil {
+		return models.ProxyExitObservation{}, err
+	}
+
+	exitIP := strings.TrimSpace(geo.IP)
+	if exitIP == "" {
+		// geo.brdtest.com currently does not always include the IP in its JSON;
+		// query ipify through the same provider session to capture it explicitly.
+		if ip, ipErr := fetchPublicIP(ctx, client); ipErr == nil {
+			exitIP = ip
+		}
+	}
+
+	obs := models.ProxyExitObservation{
+		ProxyID:          p.ID,
+		ProxyName:        p.Name,
+		ExitIP:           exitIP,
+		ExitCountry:      strings.ToUpper(geo.Country),
+		ExitASN:          geo.ASN.ASNum,
+		ExitOrganization: geo.ASN.OrgName,
+		SessionID:        sessionID,
+		ObservedAt:       time.Now().UTC(),
+	}
+	if p.TargetCountry != nil {
+		obs.ConfiguredCountry = strings.ToUpper(*p.TargetCountry)
+		obs.CountryMatches = strings.EqualFold(obs.ConfiguredCountry, obs.ExitCountry)
+	}
+	return obs, nil
+}
+
+func fetchBrightDataGeo(ctx context.Context, client *http.Client) (brightDataGeoResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, brightDataGeoURL, nil)
 	if err != nil {
 		return brightDataGeoResponse{}, err
@@ -225,7 +267,23 @@ func observeExitWithClient(ctx context.Context, client *http.Client) (brightData
 	return geo, nil
 }
 
-func geoIPString(geo brightDataGeoResponse) string { return geo.IP }
+func fetchPublicIP(ctx context.Context, client *http.Client) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ip endpoint HTTP %d", resp.StatusCode)
+	}
+	buf := make([]byte, 128)
+	n, _ := resp.Body.Read(buf)
+	return strings.TrimSpace(string(buf[:n])), nil
+}
 
 func (h *DiagnosticsHandler) persistExit(ctx context.Context, obs models.ProxyExitObservation) {
 	_, err := h.proxyRepo.GetDB().Pool.Exec(ctx, `
