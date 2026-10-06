@@ -62,6 +62,8 @@ type Server struct {
 	sourceHandler        *handlers.SourceHandler
 	poolHandler          *handlers.PoolHandler
 	userHandler          *handlers.UserHandler
+	usageHandler         *handlers.UsageHandler
+	diagnosticsHandler   *handlers.DiagnosticsHandler
 }
 
 // New creates a new API server instance
@@ -74,6 +76,7 @@ func New(cfg *config.Config, log *logger.Logger, db *database.DB) *Server {
 	sourceRepo := repository.NewSourceRepository(db)
 	poolRepo := repository.NewPoolRepository(db)
 	userRepo := repository.NewUserRepository(db)
+	usageRepo := repository.NewUsageRepository(db)
 	adminRepo := repository.NewAdminRepository(db)
 
 	// Seed admin credentials from env on first start (no-op if already seeded).
@@ -137,6 +140,8 @@ func New(cfg *config.Config, log *logger.Logger, db *database.DB) *Server {
 	sourceHandler := handlers.NewSourceHandler(sourceRepo, sourceSvc, log)
 	poolHandler := handlers.NewPoolHandler(poolRepo, poolSvc, log)
 	userHandler := handlers.NewUserHandler(userRepo, poolRepo, log)
+	usageHandler := handlers.NewUsageHandler(usageRepo, log)
+	diagnosticsHandler := handlers.NewDiagnosticsHandler(proxyRepo, log)
 
 	// Auth rate limiter (per-IP block + global lockout)
 	authRL := newAuthRateLimiter(
@@ -170,6 +175,8 @@ func New(cfg *config.Config, log *logger.Logger, db *database.DB) *Server {
 		sourceHandler:        sourceHandler,
 		poolHandler:          poolHandler,
 		userHandler:          userHandler,
+		usageHandler:         usageHandler,
+		diagnosticsHandler:   diagnosticsHandler,
 	}
 
 	// Wire settings reload: when settings are updated via API, reload proxy server & GeoIP service
@@ -327,6 +334,11 @@ func (s *Server) setupRoutes() {
 		r.Get("/proxy-users/{id}", s.userHandler.Get)
 		r.Put("/proxy-users/{id}", s.userHandler.Update)
 		r.Delete("/proxy-users/{id}", s.userHandler.Delete)
+
+		// Project/provider usage and diagnostics
+		r.Get("/usage/export", s.usageHandler.Export)
+		r.Post("/diagnostics/exits", s.diagnosticsHandler.Exit)
+		r.Post("/diagnostics/probe", s.diagnosticsHandler.Probe)
 
 		// Proxy Pools
 		r.Get("/pools", s.poolHandler.List)
