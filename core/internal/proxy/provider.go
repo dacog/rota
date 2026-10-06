@@ -18,7 +18,7 @@ var (
 // UsesPerRequestSession reports whether each outgoing upstream request/CONNECT
 // should receive a fresh provider session. This is primarily useful for
 // providers such as Bright Data where a session id selects a sticky exit peer.
-func isBrightData(p *models.Proxy) bool {
+func IsBrightData(p *models.Proxy) bool {
 	if p == nil {
 		return false
 	}
@@ -30,7 +30,7 @@ func isBrightData(p *models.Proxy) bool {
 }
 
 func UsesPerRequestSession(p *models.Proxy) bool {
-	return isBrightData(p) &&
+	return IsBrightData(p) &&
 		strings.EqualFold(strings.TrimSpace(p.SessionStrategy), "per_request")
 }
 
@@ -60,7 +60,7 @@ func PrepareProxyForRequest(p *models.Proxy) (*models.Proxy, string) {
 		cp.Password = &pw
 	}
 
-	if !isBrightData(p) || cp.Username == nil || *cp.Username == "" {
+	if !IsBrightData(p) || cp.Username == nil || *cp.Username == "" {
 		return &cp, ""
 	}
 
