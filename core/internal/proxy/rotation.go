@@ -254,8 +254,9 @@ func (b *BaseSelector) loadActiveProxiesWithSettings(ctx context.Context, settin
 	// Get all active and idle proxies (not failed)
 	query := `
 		SELECT
-			id, address, protocol, username, password, status,
-			requests, successful_requests, failed_requests,
+			id, name, address, protocol, username, password,
+			provider, target_country, session_strategy, session_id,
+			status, requests, successful_requests, failed_requests,
 			avg_response_time, last_check, last_error, created_at, updated_at
 		FROM proxies
 		WHERE status IN ('active', 'idle')
@@ -272,7 +273,8 @@ func (b *BaseSelector) loadActiveProxiesWithSettings(ctx context.Context, settin
 	for rows.Next() {
 		var p models.Proxy
 		err := rows.Scan(
-			&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Password, &p.Status,
+			&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Password,
+			&p.Provider, &p.TargetCountry, &p.SessionStrategy, &p.SessionID, &p.Status,
 			&p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
 			&p.AvgResponseTime, &p.LastCheck, &p.LastError, &p.CreatedAt, &p.UpdatedAt,
 		)
