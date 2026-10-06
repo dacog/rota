@@ -9,7 +9,7 @@ import (
 )
 
 // trySplice attempts zero-copy transfer using Linux splice(2) syscall.
-// Returns (true, err) if splice was used, (false, nil) if caller should
+// Returns (true, bytes, err) if splice was used, (false, 0, nil) if caller should
 // fall back to io.Copy (e.g. non-TCP connections).
 func trySplice(dst, src net.Conn) (bool, int64, error) {
 	// Both connections must be raw TCP to get file descriptors.
@@ -84,7 +84,7 @@ func splicePump(srcFD, dstFD, pipeR, pipeW int) (int64, error) {
 			if n == 0 {
 				return total, nil // EOF
 			}
-			return total, err
+			return err
 		}
 		if n == 0 {
 			return total, nil // EOF — src closed
