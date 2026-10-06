@@ -84,7 +84,7 @@ func splicePump(srcFD, dstFD, pipeR, pipeW int) (int64, error) {
 			if n == 0 {
 				return total, nil // EOF
 			}
-			return err
+			return total, err
 		}
 		if n == 0 {
 			return total, nil // EOF — src closed
@@ -128,7 +128,7 @@ func pollFD(fd int, write bool) error {
 			if err == unix.EINTR {
 				continue
 			}
-			return total, err
+			return err
 		}
 		if n == 0 {
 			// Idle timeout: nothing ready yet. Keep waiting rather than killing
