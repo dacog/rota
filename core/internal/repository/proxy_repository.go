@@ -36,7 +36,7 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 
 	if search != "" {
 		// Use both ILIKE for simple search and to_tsvector for full-text search
-		whereClauses = append(whereClauses, fmt.Sprintf("(address ILIKE $%d OR name ILIKE $%d OR username ILIKE $%d OR to_tsvector('simple', address || ' ' || COALESCE(name,'') || ' ' || COALESCE(username,'')) @@ plainto_tsquery('simple', $%d))", argPos, argPos))
+		whereClauses = append(whereClauses, fmt.Sprintf("(address ILIKE $%d OR name ILIKE $%d OR username ILIKE $%d OR to_tsvector('simple', address || ' ' || COALESCE(name,'') || ' ' || COALESCE(username,'')) @@ plainto_tsquery('simple', $%d))", argPos, argPos, argPos, argPos))
 		args = append(args, "%"+search+"%")
 		argPos++
 	}
