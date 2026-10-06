@@ -12,17 +12,25 @@ import (
 
 var (
 	brightDataCountryRE = regexp.MustCompile(`-country-[A-Za-z]{2}`)
-	brightDataSessionRE = regexp.MustCompile(`-session-[A-Za-z0-9_.]+`)
+	brightDataSessionRE = regexp.MustCompile(`-session-[A-Za-z0-9_.-]+`)
 )
 
 // UsesPerRequestSession reports whether each outgoing upstream request/CONNECT
 // should receive a fresh provider session. This is primarily useful for
 // providers such as Bright Data where a session id selects a sticky exit peer.
-func UsesPerRequestSession(p *models.Proxy) bool {
+func isBrightData(p *models.Proxy) bool {
 	if p == nil {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(p.Provider), "brightdata") &&
+	if strings.EqualFold(strings.TrimSpace(p.Provider), "brightdata") {
+		return true
+	}
+	host := strings.ToLower(strings.TrimSpace(p.Address))
+	return strings.Contains(host, "brd.superproxy.io") || strings.Contains(host, "brightdata")
+}
+
+func UsesPerRequestSession(p *models.Proxy) bool {
+	return isBrightData(p) &&
 		strings.EqualFold(strings.TrimSpace(p.SessionStrategy), "per_request")
 }
 
@@ -52,7 +60,7 @@ func PrepareProxyForRequest(p *models.Proxy) (*models.Proxy, string) {
 		cp.Password = &pw
 	}
 
-	if !strings.EqualFold(strings.TrimSpace(p.Provider), "brightdata") || cp.Username == nil || *cp.Username == "" {
+	if !isBrightData(p) || cp.Username == nil || *cp.Username == "" {
 		return &cp, ""
 	}
 
