@@ -119,7 +119,7 @@ func (c *PoolChain) SendWithRetry(
 	ctx context.Context,
 	rotationSettings *models.RotationSettings,
 	log *logger.Logger,
-) (*http.Response, int, error) {
+) (*http.Response, int, int, string, error) {
 	tried := make(map[int]bool)
 	maxAttempts := c.maxRetry
 	if maxAttempts <= 0 {
@@ -130,7 +130,7 @@ func (c *PoolChain) SendWithRetry(
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		selectedProxy, selIdx, err := c.pickProxy(ctx, tried)
 		if err != nil {
-			return nil, 0, fmt.Errorf("no proxy available: %w", lastErr)
+			return nil, 0, 0, "", fmt.Errorf("no proxy available: %w", lastErr)
 		}
 		tried[selectedProxy.ID] = true
 
@@ -141,7 +141,8 @@ func (c *PoolChain) SendWithRetry(
 			"proxy", selectedProxy.Address,
 		)
 
-		transport, err := CreateProxyTransport(selectedProxy)
+		effectiveProxy, sessionID := PrepareProxyForRequest(selectedProxy)
+		transport, err := CreateProxyTransport(effectiveProxy)
 		if err != nil {
 			// Transport-build failure is a local/config error, not a proxy fault —
 			// do not count it toward eviction (AUD-11).
@@ -189,10 +190,10 @@ func (c *PoolChain) SendWithRetry(
 			"proxy", selectedProxy.Address,
 			"status", resp.StatusCode,
 		)
-		return resp, selectedProxy.ID, nil
+		return resp, selectedProxy.ID, c.selectors[selIdx].poolID, sessionID, nil
 	}
 
-	return nil, 0, fmt.Errorf("all %d attempts failed, last: %w", maxAttempts, lastErr)
+	return nil, 0, 0, "", fmt.Errorf("all %d attempts failed, last: %w", maxAttempts, lastErr)
 }
 
 // ConnectWithRetry establishes a TCP tunnel (HTTPS CONNECT) through the chain.
@@ -201,7 +202,7 @@ func (c *PoolChain) ConnectWithRetry(
 	ctx context.Context,
 	rotationSettings *models.RotationSettings,
 	log *logger.Logger,
-) (net.Conn, int, error) {
+) (net.Conn, int, int, string, error) {
 	tried := make(map[int]bool)
 	maxAttempts := c.maxRetry
 	if maxAttempts <= 0 {
@@ -212,7 +213,7 @@ func (c *PoolChain) ConnectWithRetry(
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		selectedProxy, selIdx, err := c.pickProxy(ctx, tried)
 		if err != nil {
-			return nil, 0, fmt.Errorf("no proxy available: %w", lastErr)
+			return nil, 0, 0, "", fmt.Errorf("no proxy available: %w", lastErr)
 		}
 		tried[selectedProxy.ID] = true
 
@@ -222,8 +223,9 @@ func (c *PoolChain) ConnectWithRetry(
 			"host", host,
 		)
 
-		// Reuse the existing connectViaProxy logic via a temporary handler
-		conn, err := connectViaProxyStandalone(selectedProxy, host, rotationSettings)
+		effectiveProxy, sessionID := PrepareProxyForRequest(selectedProxy)
+		// Reuse the existing connectViaProxy logic via a temporary handler.
+		conn, err := connectViaProxyStandalone(effectiveProxy, host, rotationSettings)
 		if err != nil {
 			lastErr = fmt.Errorf("CONNECT proxy %s attempt %d: %w", selectedProxy.Address, attempt+1, err)
 			log.Warn("pool chain CONNECT: failed", "proxy", selectedProxy.Address, "err", err)
@@ -233,10 +235,10 @@ func (c *PoolChain) ConnectWithRetry(
 
 		c.markSucceeded(selectedProxy.ID)
 		log.Info("pool chain CONNECT: success", "proxy", selectedProxy.Address, "host", host)
-		return conn, selectedProxy.ID, nil
+		return conn, selectedProxy.ID, c.selectors[selIdx].poolID, sessionID, nil
 	}
 
-	return nil, 0, fmt.Errorf("all %d CONNECT attempts failed, last: %w", maxAttempts, lastErr)
+	return nil, 0, 0, "", fmt.Errorf("all %d CONNECT attempts failed, last: %w", maxAttempts, lastErr)
 }
 
 // connectViaProxyStandalone is a standalone version of connectViaProxy (no handler receiver needed).
