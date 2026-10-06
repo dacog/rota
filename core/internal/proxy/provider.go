@@ -65,6 +65,13 @@ func PrepareProxyForRequest(p *models.Proxy) (*models.Proxy, string) {
 	}
 
 	username := *cp.Username
+	strategy := strings.ToLower(strings.TrimSpace(p.SessionStrategy))
+	if strategy == "per_request" || strategy == "fixed" {
+		// Remove an existing session before adding country/session components.
+		// The session regex intentionally allows '-' and would otherwise consume
+		// a country component appended after the old session.
+		username = brightDataSessionRE.ReplaceAllString(username, "")
+	}
 
 	if p.TargetCountry != nil {
 		country := strings.ToLower(strings.TrimSpace(*p.TargetCountry))
@@ -75,7 +82,7 @@ func PrepareProxyForRequest(p *models.Proxy) (*models.Proxy, string) {
 	}
 
 	sessionID := ""
-	switch strings.ToLower(strings.TrimSpace(p.SessionStrategy)) {
+	switch strategy {
 	case "per_request":
 		sessionID = newProviderSessionID()
 	case "fixed":
@@ -85,7 +92,6 @@ func PrepareProxyForRequest(p *models.Proxy) (*models.Proxy, string) {
 	}
 
 	if sessionID != "" {
-		username = brightDataSessionRE.ReplaceAllString(username, "")
 		username += "-session-" + sessionID
 	}
 
