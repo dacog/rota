@@ -36,7 +36,7 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 
 	if search != "" {
 		// Use both ILIKE for simple search and to_tsvector for full-text search
-		whereClauses = append(whereClauses, fmt.Sprintf("(address ILIKE $%d OR to_tsvector('simple', address) @@ plainto_tsquery('simple', $%d))", argPos, argPos))
+		whereClauses = append(whereClauses, fmt.Sprintf("(address ILIKE $%d OR name ILIKE $%d OR username ILIKE $%d OR to_tsvector('simple', address || ' ' || COALESCE(name,'') || ' ' || COALESCE(username,'')) @@ plainto_tsquery('simple', $%d))", argPos, argPos))
 		args = append(args, "%"+search+"%")
 		argPos++
 	}
@@ -86,8 +86,10 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 	offset := (page - 1) * limit
 	query := fmt.Sprintf(`
 		SELECT
-			id, address, protocol, username, status,
-			requests, successful_requests, failed_requests,
+			id, name, address, protocol, username,
+			provider, target_country, session_strategy, session_id,
+			last_exit_ip, last_exit_country, last_exit_asn, last_exit_org, last_exit_observed_at,
+			status, requests, successful_requests, failed_requests,
 			avg_response_time, last_check,
 			country_code, country_name, region_name, city_name, isp,
 			COALESCE(tags, '{}') AS tags,
@@ -110,8 +112,10 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 	for rows.Next() {
 		var p models.Proxy
 		err := rows.Scan(
-			&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Status,
-			&p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
+			&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username,
+			&p.Provider, &p.TargetCountry, &p.SessionStrategy, &p.SessionID,
+			&p.LastExitIP, &p.LastExitCountry, &p.LastExitASN, &p.LastExitOrg, &p.LastExitObservedAt,
+			&p.Status, &p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
 			&p.AvgResponseTime, &p.LastCheck,
 			&p.CountryCode, &p.CountryName, &p.RegionName, &p.CityName, &p.ISP,
 			&p.Tags,
@@ -133,10 +137,20 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 		}
 
 		proxies = append(proxies, models.ProxyWithStats{
-			ID:              p.ID,
-			Address:         p.Address,
-			Protocol:        p.Protocol,
-			Username:        p.Username,
+			ID:               p.ID,
+			Name:             p.Name,
+			Address:          p.Address,
+			Protocol:         p.Protocol,
+			Username:         p.Username,
+			Provider:         p.Provider,
+			TargetCountry:    p.TargetCountry,
+			SessionStrategy:  p.SessionStrategy,
+			SessionID:        p.SessionID,
+			LastExitIP:       p.LastExitIP,
+			LastExitCountry:  p.LastExitCountry,
+			LastExitASN:      p.LastExitASN,
+			LastExitOrg:      p.LastExitOrg,
+			LastExitObservedAt: p.LastExitObservedAt,
 			Status:          p.Status,
 			Requests:        p.Requests,
 			SuccessRate:     successRate,
@@ -160,8 +174,10 @@ func (r *ProxyRepository) List(ctx context.Context, page, limit int, search, sta
 func (r *ProxyRepository) GetByID(ctx context.Context, id int) (*models.Proxy, error) {
 	query := `
 		SELECT
-			id, address, protocol, username, password, status,
-			requests, successful_requests, failed_requests,
+			id, name, address, protocol, username, password,
+			provider, target_country, session_strategy, session_id,
+			last_exit_ip, last_exit_country, last_exit_asn, last_exit_org, last_exit_observed_at,
+			status, requests, successful_requests, failed_requests,
 			avg_response_time, last_check, last_error,
 			country_code, country_name, region_name, city_name, isp,
 			COALESCE(tags, '{}') AS tags,
@@ -172,8 +188,10 @@ func (r *ProxyRepository) GetByID(ctx context.Context, id int) (*models.Proxy, e
 
 	var p models.Proxy
 	err := r.db.Pool.QueryRow(ctx, query, id).Scan(
-		&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Password, &p.Status,
-		&p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
+		&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Password,
+		&p.Provider, &p.TargetCountry, &p.SessionStrategy, &p.SessionID,
+		&p.LastExitIP, &p.LastExitCountry, &p.LastExitASN, &p.LastExitOrg, &p.LastExitObservedAt,
+		&p.Status, &p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
 		&p.AvgResponseTime, &p.LastCheck, &p.LastError,
 		&p.CountryCode, &p.CountryName, &p.RegionName, &p.CityName, &p.ISP,
 		&p.Tags,
@@ -200,21 +218,30 @@ func (r *ProxyRepository) Create(ctx context.Context, req models.CreateProxyRequ
 		tags = []string{}
 	}
 	query := `
-		INSERT INTO proxies (address, protocol, username, password, tags, source_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, address, protocol, username, status, tags, created_at, updated_at
+		INSERT INTO proxies (
+			name, address, protocol, username, password, provider, target_country,
+			session_strategy, session_id, tags, source_id
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE(NULLIF($8,''),'none'),$9,$10,$11)
+		RETURNING id, name, address, protocol, username, provider, target_country,
+		          session_strategy, session_id, status, tags, created_at, updated_at
 	`
 
 	var p models.Proxy
-	err := r.db.Pool.QueryRow(ctx, query, req.Address, req.Protocol, req.Username, req.Password, tags, req.SourceID).Scan(
-		&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Status, &p.Tags, &p.CreatedAt, &p.UpdatedAt,
+	err := r.db.Pool.QueryRow(ctx, query,
+		req.Name, req.Address, req.Protocol, req.Username, req.Password, req.Provider,
+		req.TargetCountry, req.SessionStrategy, req.SessionID, tags, req.SourceID,
+	).Scan(
+		&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Provider,
+		&p.TargetCountry, &p.SessionStrategy, &p.SessionID, &p.Status, &p.Tags,
+		&p.CreatedAt, &p.UpdatedAt,
 	)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, fmt.Errorf("proxy with address %s and protocol %s already exists", req.Address, req.Protocol)
+			return nil, fmt.Errorf("proxy with address %s, protocol %s and username %v already exists", req.Address, req.Protocol, req.Username)
 		}
 		return nil, fmt.Errorf("failed to create proxy: %w", err)
 	}
@@ -233,15 +260,21 @@ func (r *ProxyRepository) Upsert(ctx context.Context, req models.CreateProxyRequ
 	// Check if proxy exists
 	var existingID int
 	checkErr := r.db.Pool.QueryRow(ctx,
-		`SELECT id FROM proxies WHERE address=$1 AND protocol=$2`, req.Address, req.Protocol,
+		`SELECT id FROM proxies WHERE address=$1 AND protocol=$2 AND COALESCE(username,'')=COALESCE($3,'')`,
+		req.Address, req.Protocol, req.Username,
 	).Scan(&existingID)
 
 	if checkErr == pgx.ErrNoRows {
 		// Insert new
 		insErr := r.db.Pool.QueryRow(ctx,
-			`INSERT INTO proxies (address, protocol, username, password, tags, source_id)
-			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-			req.Address, req.Protocol, req.Username, req.Password, tags, req.SourceID,
+			`INSERT INTO proxies (
+				name, address, protocol, username, password, provider, target_country,
+				session_strategy, session_id, tags, source_id
+			 )
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE(NULLIF($8,''),'none'),$9,$10,$11)
+			 RETURNING id`,
+			req.Name, req.Address, req.Protocol, req.Username, req.Password, req.Provider,
+			req.TargetCountry, req.SessionStrategy, req.SessionID, tags, req.SourceID,
 		).Scan(&id)
 		if insErr != nil {
 			return 0, "failed", insErr
@@ -255,13 +288,18 @@ func (r *ProxyRepository) Upsert(ctx context.Context, req models.CreateProxyRequ
 	// Update existing — update tags/auth/source_id if provided
 	_, updErr := r.db.Pool.Exec(ctx,
 		`UPDATE proxies SET
-			username   = COALESCE($1, username),
+			name       = CASE WHEN $1 <> '' THEN $1 ELSE name END,
 			password   = COALESCE($2, password),
-			tags       = CASE WHEN array_length($3::text[], 1) > 0 THEN $3::text[] ELSE tags END,
-			source_id  = COALESCE($4, source_id),
+			provider   = CASE WHEN $3 <> '' THEN $3 ELSE provider END,
+			target_country = COALESCE($4, target_country),
+			session_strategy = CASE WHEN $5 <> '' THEN $5 ELSE session_strategy END,
+			session_id = COALESCE($6, session_id),
+			tags       = CASE WHEN array_length($7::text[], 1) > 0 THEN $7::text[] ELSE tags END,
+			source_id  = COALESCE($8, source_id),
 			updated_at = NOW()
-		WHERE id = $5`,
-		req.Username, req.Password, tags, req.SourceID, existingID,
+		WHERE id = $9`,
+		req.Name, req.Password, req.Provider, req.TargetCountry, req.SessionStrategy,
+		req.SessionID, tags, req.SourceID, existingID,
 	)
 	if updErr != nil {
 		return existingID, "failed", updErr
@@ -319,19 +357,29 @@ func (r *ProxyRepository) Update(ctx context.Context, id int, req models.UpdateP
 	// so an edit form can't round-trip it); "" clears it explicitly.
 	query := `
 		UPDATE proxies
-		SET address    = COALESCE(NULLIF($1, ''), address),
-		    protocol   = COALESCE(NULLIF($2, ''), protocol),
-		    username   = $3,
-		    password   = COALESCE($4, password),
-		    tags       = $5,
+		SET name       = COALESCE($1, name),
+		    address    = COALESCE(NULLIF($2, ''), address),
+		    protocol   = COALESCE(NULLIF($3, ''), protocol),
+		    username   = $4,
+		    password   = COALESCE($5, password),
+		    provider   = COALESCE($6, provider),
+		    target_country = $7,
+		    session_strategy = COALESCE($8, session_strategy),
+		    session_id = $9,
+		    tags       = $10,
 		    updated_at = NOW()
-		WHERE id = $6
-		RETURNING id, address, protocol, status, COALESCE(tags,'{}'), updated_at
+		WHERE id = $11
+		RETURNING id, name, address, protocol, username, provider, target_country,
+		          session_strategy, session_id, status, COALESCE(tags,'{}'), updated_at
 	`
 
 	var p models.Proxy
-	err := r.db.Pool.QueryRow(ctx, query, req.Address, req.Protocol, req.Username, req.Password, tags, id).Scan(
-		&p.ID, &p.Address, &p.Protocol, &p.Status, &p.Tags, &p.UpdatedAt,
+	err := r.db.Pool.QueryRow(ctx, query,
+		req.Name, req.Address, req.Protocol, req.Username, req.Password, req.Provider,
+		req.TargetCountry, req.SessionStrategy, req.SessionID, tags, id,
+	).Scan(
+		&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Provider,
+		&p.TargetCountry, &p.SessionStrategy, &p.SessionID, &p.Status, &p.Tags, &p.UpdatedAt,
 	)
 
 	if err == pgx.ErrNoRows {
