@@ -77,15 +77,34 @@ func (t *UsageTracker) Stop() {
 
 // RequestRecord represents a single proxy request
 type RequestRecord struct {
-	ProxyID      int
-	ProxyAddress string
-	RequestedURL string
-	Method       string
-	Success      bool
-	ResponseTime int // milliseconds
-	StatusCode   int
-	ErrorMessage string
-	Timestamp    time.Time
+	ProxyID           int
+	ProxyAddress      string
+	ProxyUserID       int
+	PoolID            int
+	ProviderSessionID string
+	RequestedURL      string
+	Method            string
+	Success           bool
+	ResponseTime      int // milliseconds
+	StatusCode        int
+	BytesUp           int64
+	BytesDown         int64
+	ErrorMessage      string
+	Timestamp         time.Time
+}
+
+func nullableInt(v int) *int {
+	if v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+func nullableString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 // RecordRequest records a proxy request. With the batch writer running it is a
@@ -245,13 +264,30 @@ func (t *UsageTracker) flush(ctx context.Context, batch []RequestRecord) {
 			e := r.ErrorMessage
 			errMsg = &e
 		}
+		var proxyUserID *int
+		if r.ProxyUserID > 0 {
+			v := r.ProxyUserID
+			proxyUserID = &v
+		}
+		var poolID *int
+		if r.PoolID > 0 {
+			v := r.PoolID
+			poolID = &v
+		}
+		var providerSessionID *string
+		if r.ProviderSessionID != "" {
+			v := r.ProviderSessionID
+			providerSessionID = &v
+		}
 		rows = append(rows, []any{
-			r.ProxyID, r.ProxyAddress, r.Method, r.RequestedURL,
-			statusCode, r.Success, r.ResponseTime, errMsg, r.Timestamp,
+			r.ProxyID, r.ProxyAddress, proxyUserID, poolID, providerSessionID,
+			r.Method, r.RequestedURL, statusCode, r.Success, r.ResponseTime,
+			r.BytesUp, r.BytesDown, errMsg, r.Timestamp,
 		})
 	}
 	if _, err := pool.CopyFrom(ctx, pgx.Identifier{"proxy_requests"},
-		[]string{"proxy_id", "proxy_address", "method", "url", "status_code", "success", "response_time", "error", "timestamp"},
+		[]string{"proxy_id", "proxy_address", "proxy_user_id", "pool_id", "provider_session_id",
+			"method", "url", "status_code", "success", "response_time", "bytes_up", "bytes_down", "error", "timestamp"},
 		pgx.CopyFromRows(rows)); err != nil {
 		t.logErr("failed to bulk-insert proxy requests", err)
 	}
@@ -291,8 +327,9 @@ func (t *UsageTracker) logErr(msg string, err error) {
 func (t *UsageTracker) insertProxyRequest(ctx context.Context, record RequestRecord) error {
 	query := `
 		INSERT INTO proxy_requests (
-			proxy_id, proxy_address, method, url, status_code, success, response_time, error, timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			proxy_id, proxy_address, proxy_user_id, pool_id, provider_session_id,
+			method, url, status_code, success, response_time, bytes_up, bytes_down, error, timestamp
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	`
 
 	var errorMsg *string
@@ -310,11 +347,16 @@ func (t *UsageTracker) insertProxyRequest(ctx context.Context, record RequestRec
 		query,
 		record.ProxyID,
 		record.ProxyAddress,
+		nullableInt(record.ProxyUserID),
+		nullableInt(record.PoolID),
+		nullableString(record.ProviderSessionID),
 		record.Method,
 		record.RequestedURL,
 		statusCode,
 		record.Success,
 		record.ResponseTime,
+		record.BytesUp,
+		record.BytesDown,
 		errorMsg,
 		record.Timestamp,
 	)
@@ -465,7 +507,9 @@ func (t *UsageTracker) GetRecentRequests(ctx context.Context, proxyID int, limit
 	// error_message, which don't exist (AUD-18).
 	query := `
 		SELECT
-			proxy_id, method, url, COALESCE(status_code, 0), success, response_time,
+			proxy_id, COALESCE(proxy_user_id,0), COALESCE(pool_id,0),
+			COALESCE(provider_session_id,''), method, url, COALESCE(status_code, 0),
+			success, response_time, COALESCE(bytes_up,0), COALESCE(bytes_down,0),
 			COALESCE(error, '') AS error, timestamp
 		FROM proxy_requests
 		WHERE proxy_id = $1
@@ -485,11 +529,16 @@ func (t *UsageTracker) GetRecentRequests(ctx context.Context, proxyID int, limit
 
 		err := rows.Scan(
 			&record.ProxyID,
+			&record.ProxyUserID,
+			&record.PoolID,
+			&record.ProviderSessionID,
 			&record.Method,
 			&record.RequestedURL,
 			&record.StatusCode,
 			&record.Success,
 			&record.ResponseTime,
+			&record.BytesUp,
+			&record.BytesDown,
 			&record.ErrorMessage,
 			&record.Timestamp,
 		)
