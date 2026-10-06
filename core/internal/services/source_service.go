@@ -390,7 +390,7 @@ func (s *SourceService) enrichGeo(ctx context.Context, addresses []string) {
 				longitude      = $6,
 				isp            = $7,
 				geo_updated_at = NOW()
-			WHERE address = $8
+			WHERE address = $8 AND COALESCE(provider,'') = ''
 		`, geo.CountryCode, geo.CountryName, geo.RegionName, geo.CityName,
 			geo.Latitude, geo.Longitude, geo.ISP, addr,
 		); err != nil {
@@ -402,7 +402,7 @@ func (s *SourceService) enrichGeo(ctx context.Context, addresses []string) {
 // EnrichAll re-runs geo enrichment for all proxies that have no geo data yet.
 func (s *SourceService) EnrichAll(ctx context.Context) (int, error) {
 	rows, err := s.proxyRepo.GetDB().Pool.Query(ctx,
-		`SELECT address FROM proxies WHERE country_code IS NULL LIMIT 500`)
+		`SELECT address FROM proxies WHERE country_code IS NULL AND COALESCE(provider,'') = '' LIMIT 500`)
 	if err != nil {
 		return 0, err
 	}
@@ -434,7 +434,7 @@ func (s *SourceService) EnrichAll(ctx context.Context) (int, error) {
 				longitude      = $6,
 				isp            = $7,
 				geo_updated_at = NOW()
-			WHERE address = $8
+			WHERE address = $8 AND COALESCE(provider,'') = ''
 		`, geo.CountryCode, geo.CountryName, geo.RegionName, geo.CityName,
 			geo.Latitude, geo.Longitude, geo.ISP, addr); err != nil {
 			s.logger.Warn("failed to update geo for proxy (EnrichAll)", "address", addr, "error", err)
