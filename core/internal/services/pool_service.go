@@ -272,7 +272,8 @@ func (ps *PoolService) checkOneProxyTimeout(ctx context.Context, p *models.Proxy
 		TestedAt: start,
 	}
 
-	transport, err := proxy.CreateProxyTransport(p)
+	effectiveProxy, _ := proxy.PrepareProxyForRequest(p)
+	transport, err := proxy.CreateProxyTransport(effectiveProxy)
 	if err != nil {
 		result.Status = "failed"
 		msg := err.Error()
