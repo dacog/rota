@@ -67,10 +67,20 @@ type PoolAlertPayload struct {
 // PoolProxy is the join between a pool and a proxy (with stats)
 type PoolProxy struct {
 	ProxyID         int        `json:"proxy_id"`
+	Name            string     `json:"name,omitempty"`
 	Address         string     `json:"address"`
 	Protocol        string     `json:"protocol"`
 	Username        *string    `json:"-"`
 	Password        *string    `json:"-"`
+	Provider        string     `json:"provider,omitempty"`
+	TargetCountry   *string    `json:"target_country,omitempty"`
+	SessionStrategy string     `json:"session_strategy,omitempty"`
+	SessionID       *string    `json:"session_id,omitempty"`
+	LastExitIP      *string    `json:"last_exit_ip,omitempty"`
+	LastExitCountry *string    `json:"last_exit_country,omitempty"`
+	LastExitASN     *int       `json:"last_exit_asn,omitempty"`
+	LastExitOrg     *string    `json:"last_exit_org,omitempty"`
+	LastExitObservedAt *time.Time `json:"last_exit_observed_at,omitempty"`
 	Status          string     `json:"status"`
 	CountryCode     *string    `json:"country_code,omitempty"`
 	CountryName     *string    `json:"country_name,omitempty"`
@@ -87,11 +97,21 @@ type PoolProxy struct {
 // ToProxy converts a PoolProxy to a Proxy (for transport creation with auth).
 func (pp *PoolProxy) ToProxy() *Proxy {
 	return &Proxy{
-		ID:       pp.ProxyID,
-		Address:  pp.Address,
-		Protocol: pp.Protocol,
-		Username: pp.Username,
-		Password: pp.Password,
+		ID:              pp.ProxyID,
+		Name:            pp.Name,
+		Address:         pp.Address,
+		Protocol:        pp.Protocol,
+		Username:        pp.Username,
+		Password:        pp.Password,
+		Provider:        pp.Provider,
+		TargetCountry:   pp.TargetCountry,
+		SessionStrategy: pp.SessionStrategy,
+		SessionID:       pp.SessionID,
+		LastExitIP:      pp.LastExitIP,
+		LastExitCountry: pp.LastExitCountry,
+		LastExitASN:     pp.LastExitASN,
+		LastExitOrg:     pp.LastExitOrg,
+		LastExitObservedAt: pp.LastExitObservedAt,
 	}
 }
 
