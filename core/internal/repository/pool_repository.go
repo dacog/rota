@@ -228,8 +228,10 @@ func (r *PoolRepository) Delete(ctx context.Context, id int) error {
 func (r *PoolRepository) GetProxies(ctx context.Context, poolID int) ([]models.PoolProxy, error) {
 	query := `
 		SELECT
-			p.id, p.address, p.protocol, p.username, p.password, p.status,
-			p.country_code, p.country_name, p.region_name, p.city_name, p.isp,
+			p.id, p.name, p.address, p.protocol, p.username, p.password,
+			p.provider, p.target_country, p.session_strategy, p.session_id,
+			p.last_exit_ip, p.last_exit_country, p.last_exit_asn, p.last_exit_org, p.last_exit_observed_at,
+			p.status, p.country_code, p.country_name, p.region_name, p.city_name, p.isp,
 			p.requests, p.successful_requests, p.failed_requests,
 			p.avg_response_time, p.last_check, ppm.added_at
 		FROM pool_proxies ppm
@@ -248,8 +250,10 @@ func (r *PoolRepository) GetProxies(ctx context.Context, poolID int) ([]models.P
 		var pp models.PoolProxy
 		var succReq, failReq int64
 		err := rows.Scan(
-			&pp.ProxyID, &pp.Address, &pp.Protocol, &pp.Username, &pp.Password, &pp.Status,
-			&pp.CountryCode, &pp.CountryName, &pp.RegionName, &pp.CityName, &pp.ISP,
+			&pp.ProxyID, &pp.Name, &pp.Address, &pp.Protocol, &pp.Username, &pp.Password,
+			&pp.Provider, &pp.TargetCountry, &pp.SessionStrategy, &pp.SessionID,
+			&pp.LastExitIP, &pp.LastExitCountry, &pp.LastExitASN, &pp.LastExitOrg, &pp.LastExitObservedAt,
+			&pp.Status, &pp.CountryCode, &pp.CountryName, &pp.RegionName, &pp.CityName, &pp.ISP,
 			&pp.Requests, &succReq, &failReq,
 			&pp.AvgResponseTime, &pp.LastCheck, &pp.AddedAt,
 		)
@@ -411,11 +415,11 @@ func (r *PoolRepository) SyncPoolByGeo(ctx context.Context, pool models.ProxyPoo
 		var qerr error
 		if f.CityName != "" {
 			rows, qerr = r.db.Pool.Query(ctx,
-				`SELECT id FROM proxies WHERE country_code=$1 AND city_name ILIKE $2`,
+				`SELECT id FROM proxies WHERE COALESCE(target_country, country_code)=$1 AND city_name ILIKE $2`,
 				f.CountryCode, "%"+f.CityName+"%")
 		} else {
 			rows, qerr = r.db.Pool.Query(ctx,
-				`SELECT id FROM proxies WHERE country_code=$1`,
+				`SELECT id FROM proxies WHERE COALESCE(target_country, country_code)=$1`,
 				f.CountryCode)
 		}
 		if qerr != nil {
@@ -1103,8 +1107,10 @@ func (r *PoolRepository) GetWorkingProxies(ctx context.Context, poolID int, limi
 
 	query := `
 		SELECT
-			p.id, p.address, p.protocol, p.username, p.password, p.status,
-			p.country_code, p.country_name, p.region_name, p.city_name, p.isp,
+			p.id, p.name, p.address, p.protocol, p.username, p.password,
+			p.provider, p.target_country, p.session_strategy, p.session_id,
+			p.last_exit_ip, p.last_exit_country, p.last_exit_asn, p.last_exit_org, p.last_exit_observed_at,
+			p.status, p.country_code, p.country_name, p.region_name, p.city_name, p.isp,
 			p.requests, p.successful_requests, p.failed_requests,
 			p.avg_response_time, p.last_check, ppm.added_at
 		FROM pool_proxies ppm
@@ -1136,8 +1142,10 @@ func (r *PoolRepository) GetWorkingProxies(ctx context.Context, poolID int, limi
 		var pp models.PoolProxy
 		var succReq, failReq int64
 		err := rows.Scan(
-			&pp.ProxyID, &pp.Address, &pp.Protocol, &pp.Username, &pp.Password, &pp.Status,
-			&pp.CountryCode, &pp.CountryName, &pp.RegionName, &pp.CityName, &pp.ISP,
+			&pp.ProxyID, &pp.Name, &pp.Address, &pp.Protocol, &pp.Username, &pp.Password,
+			&pp.Provider, &pp.TargetCountry, &pp.SessionStrategy, &pp.SessionID,
+			&pp.LastExitIP, &pp.LastExitCountry, &pp.LastExitASN, &pp.LastExitOrg, &pp.LastExitObservedAt,
+			&pp.Status, &pp.CountryCode, &pp.CountryName, &pp.RegionName, &pp.CityName, &pp.ISP,
 			&pp.Requests, &succReq, &failReq,
 			&pp.AvgResponseTime, &pp.LastCheck, &pp.AddedAt,
 		)
