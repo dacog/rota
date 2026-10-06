@@ -46,3 +46,19 @@ type DiagnosticProbeResult struct {
 	Error             string    `json:"error,omitempty"`
 	TestedAt          time.Time `json:"tested_at"`
 }
+
+
+// DiagnosticCountrySummary aggregates sampled target results by URL and
+// configured country. "blocked_sample" means every observed HTTP response in
+// the sample was 403; it deliberately does not claim the whole country is
+// universally blocked.
+type DiagnosticCountrySummary struct {
+	URL          string `json:"url"`
+	Country      string `json:"country"`
+	Attempts     int    `json:"attempts"`
+	Reachable    int    `json:"reachable"`
+	Forbidden403 int    `json:"forbidden_403"`
+	OtherHTTP    int    `json:"other_http"`
+	Errors       int    `json:"errors"`
+	Assessment   string `json:"assessment"` // reachable | blocked_sample | inconclusive
+}
