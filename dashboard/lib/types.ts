@@ -2,6 +2,7 @@
 
 export interface Proxy {
   id: number
+  name?: string
   address: string
   protocol: "http" | "https" | "socks4" | "socks4a" | "socks5"
   status: "active" | "failed" | "idle"
@@ -10,6 +11,15 @@ export interface Proxy {
   avg_response_time: number
   last_check: string
   username?: string
+  provider?: string
+  target_country?: string
+  session_strategy?: "none" | "per_request" | "fixed"
+  session_id?: string
+  last_exit_ip?: string
+  last_exit_country?: string
+  last_exit_asn?: number
+  last_exit_org?: string
+  last_exit_observed_at?: string
   tags: string[]
   created_at: string
   updated_at: string
@@ -163,18 +173,28 @@ export interface ApiError {
 
 // Request Types
 export interface AddProxyRequest {
+  name?: string
   address: string
   protocol: "http" | "https" | "socks4" | "socks4a" | "socks5"
   username?: string
   password?: string
+  provider?: string
+  target_country?: string
+  session_strategy?: "none" | "per_request" | "fixed"
+  session_id?: string
   tags?: string[]
 }
 
 export interface UpdateProxyRequest {
+  name?: string
   address?: string
   protocol?: "http" | "https" | "socks4" | "socks4a" | "socks5"
   username?: string
   password?: string
+  provider?: string
+  target_country?: string
+  session_strategy?: "none" | "per_request" | "fixed"
+  session_id?: string
   tags?: string[]
 }
 
@@ -289,8 +309,18 @@ export interface CreatePoolAlertRuleRequest {
 
 export interface PoolProxy {
   proxy_id: number
+  name?: string
   address: string
   protocol: string
+  provider?: string
+  target_country?: string
+  session_strategy?: "none" | "per_request" | "fixed"
+  session_id?: string
+  last_exit_ip?: string
+  last_exit_country?: string
+  last_exit_asn?: number
+  last_exit_org?: string
+  last_exit_observed_at?: string
   status: string
   country_code?: string
   country_name?: string
@@ -421,4 +451,53 @@ export interface ProxyWithTags {
   country_name?: string
   city_name?: string
   isp?: string
+}
+
+
+// ── MK provider diagnostics / usage ─────────────────────────────────────────
+export interface ProxyExitObservation {
+  proxy_id: number
+  proxy_name?: string
+  configured_country?: string
+  exit_ip: string
+  exit_country: string
+  exit_asn?: number
+  exit_organization?: string
+  session_id?: string
+  observed_at: string
+  country_matches: boolean
+}
+
+export interface DiagnosticProbeResult {
+  url: string
+  proxy_id: number
+  proxy_name?: string
+  provider?: string
+  configured_country?: string
+  session_id?: string
+  exit_ip?: string
+  exit_country?: string
+  exit_asn?: number
+  http_status?: number
+  final_url?: string
+  duration_ms: number
+  error?: string
+  tested_at: string
+}
+
+export interface UsageExportRow {
+  day: string
+  proxy_user_id?: number
+  project: string
+  pool_id?: number
+  pool_name?: string
+  proxy_id: number
+  proxy_name?: string
+  proxy_address: string
+  provider?: string
+  target_country?: string
+  requests: number
+  bytes_up: number
+  bytes_down: number
+  total_bytes: number
 }
