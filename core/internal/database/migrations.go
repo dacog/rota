@@ -575,8 +575,15 @@ var migrations = []Migration{
 				ADD COLUMN IF NOT EXISTS last_exit_observed_at TIMESTAMP;
 
 			ALTER TABLE proxies DROP CONSTRAINT IF EXISTS unique_proxy_address_protocol;
-			CREATE UNIQUE INDEX IF NOT EXISTS unique_proxy_address_protocol_username
-				ON proxies(address, protocol, COALESCE(username, ''));
+			CREATE UNIQUE INDEX IF NOT EXISTS unique_proxy_logical_config
+				ON proxies(
+					address,
+					protocol,
+					COALESCE(username, ''),
+					COALESCE(target_country, ''),
+					session_strategy,
+					COALESCE(session_id, '')
+				);
 
 			CREATE INDEX IF NOT EXISTS idx_proxies_provider ON proxies(provider);
 			CREATE INDEX IF NOT EXISTS idx_proxies_target_country ON proxies(target_country);
@@ -587,7 +594,7 @@ var migrations = []Migration{
 			ALTER TABLE proxies DROP CONSTRAINT IF EXISTS proxies_session_strategy_check;
 			DROP INDEX IF EXISTS idx_proxies_target_country;
 			DROP INDEX IF EXISTS idx_proxies_provider;
-			DROP INDEX IF EXISTS unique_proxy_address_protocol_username;
+			DROP INDEX IF EXISTS unique_proxy_logical_config;
 			ALTER TABLE proxies
 				DROP COLUMN IF EXISTS last_exit_observed_at,
 				DROP COLUMN IF EXISTS last_exit_org,
