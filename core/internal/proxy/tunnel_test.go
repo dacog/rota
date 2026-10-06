@@ -20,9 +20,14 @@ func TestBidirectionalCopy_Basic(t *testing.T) {
 	defer upstreamConn.Close()
 
 	// Start bidirectional copy (proxy sits between proxyClientSide and proxyUpstreamSide).
-	done := make(chan error, 1)
+	type tunnelResult struct {
+		stats TunnelStats
+		err   error
+	}
+	done := make(chan tunnelResult, 1)
 	go func() {
-		done <- BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		stats, err := BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		done <- tunnelResult{stats: stats, err: err}
 	}()
 
 	// Client sends data → should arrive at upstream.
@@ -59,7 +64,13 @@ func TestBidirectionalCopy_Basic(t *testing.T) {
 	upstreamConn.Close()
 
 	select {
-	case <-done:
+	case got := <-done:
+		if got.stats.BytesUp != int64(len(clientMsg)) {
+			t.Fatalf("BytesUp = %d, want %d", got.stats.BytesUp, len(clientMsg))
+		}
+		if got.stats.BytesDown != int64(len(upstreamMsg)) {
+			t.Fatalf("BytesDown = %d, want %d", got.stats.BytesDown, len(upstreamMsg))
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("BidirectionalCopy did not finish in time")
 	}
@@ -72,9 +83,14 @@ func TestBidirectionalCopy_LargePayload(t *testing.T) {
 	defer clientConn.Close()
 	defer upstreamConn.Close()
 
-	done := make(chan error, 1)
+	type tunnelResult struct {
+		stats TunnelStats
+		err   error
+	}
+	done := make(chan tunnelResult, 1)
 	go func() {
-		done <- BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		stats, err := BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		done <- tunnelResult{stats: stats, err: err}
 	}()
 
 	// Generate 10MB of random data.
@@ -115,7 +131,10 @@ func TestBidirectionalCopy_LargePayload(t *testing.T) {
 
 	upstreamConn.Close()
 	select {
-	case <-done:
+	case got := <-done:
+		if got.stats.BytesUp != payloadSize {
+			t.Fatalf("BytesUp = %d, want %d", got.stats.BytesUp, payloadSize)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("BidirectionalCopy did not finish in time")
 	}
@@ -128,9 +147,14 @@ func TestBidirectionalCopy_HalfClose(t *testing.T) {
 	defer clientConn.Close()
 	defer upstreamConn.Close()
 
-	done := make(chan error, 1)
+	type tunnelResult struct {
+		stats TunnelStats
+		err   error
+	}
+	done := make(chan tunnelResult, 1)
 	go func() {
-		done <- BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		stats, err := BidirectionalCopy(proxyClientSide, proxyUpstreamSide)
+		done <- tunnelResult{stats: stats, err: err}
 	}()
 
 	// Client sends data then closes write side.
@@ -159,7 +183,10 @@ func TestBidirectionalCopy_HalfClose(t *testing.T) {
 	upstreamConn.Close()
 
 	select {
-	case <-done:
+	case got := <-done:
+		if got.stats.BytesUp != int64(len(msg)) {
+			t.Fatalf("BytesUp = %d, want %d", got.stats.BytesUp, len(msg))
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("BidirectionalCopy did not finish after both sides closed")
 	}
