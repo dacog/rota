@@ -26,7 +26,8 @@ func NewDiagnosticsHandler(proxyRepo *repository.ProxyRepository, log *logger.Lo
 }
 
 type brightDataGeoResponse struct {
-	IP        string `json:"ip"`\n\tIPVersion int    `json:"ip_version"`
+	IP        string `json:"ip"`
+	IPVersion int    `json:"ip_version"`
 	Country   string `json:"country"`
 	ASN       struct {
 		ASNum   int    `json:"asnum"`
