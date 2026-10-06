@@ -366,12 +366,12 @@ func (r *ProxyRepository) Update(ctx context.Context, id int, req models.UpdateP
 		SET name       = COALESCE($1, name),
 		    address    = COALESCE(NULLIF($2, ''), address),
 		    protocol   = COALESCE(NULLIF($3, ''), protocol),
-		    username   = $4,
+		    username   = COALESCE($4, username),
 		    password   = COALESCE($5, password),
 		    provider   = COALESCE($6, provider),
-		    target_country = $7,
-		    session_strategy = COALESCE($8, session_strategy),
-		    session_id = $9,
+		    target_country = CASE WHEN $7::TEXT IS NULL THEN target_country ELSE NULLIF($7, '') END,
+		    session_strategy = COALESCE(NULLIF($8, ''), session_strategy),
+		    session_id = CASE WHEN $9::TEXT IS NULL THEN session_id ELSE NULLIF($9, '') END,
 		    tags       = $10,
 		    updated_at = NOW()
 		WHERE id = $11
