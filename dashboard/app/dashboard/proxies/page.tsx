@@ -107,10 +107,15 @@ function ProxiesPage() {
   const [deleteAllOpen, setDeleteAllOpen] = React.useState(false)
 
   const [newProxy, setNewProxy] = React.useState({
+    name: "",
     address: "",
     protocol: "http" as Protocol,
     username: "",
     password: "",
+    provider: "",
+    target_country: "",
+    session_strategy: "none" as "none" | "per_request" | "fixed",
+    session_id: "",
     tags: [] as string[],
   })
   const [bulkAddTags, setBulkAddTags] = React.useState<string[]>([])
@@ -215,7 +220,18 @@ function ProxiesPage() {
     try {
       await api.addProxy(newProxy)
       setAddOpen(false)
-      setNewProxy({ address: "", protocol: "http", username: "", password: "", tags: [] })
+      setNewProxy({
+        name: "",
+        address: "",
+        protocol: "http",
+        username: "",
+        password: "",
+        provider: "",
+        target_country: "",
+        session_strategy: "none",
+        session_id: "",
+        tags: [],
+      })
       toast.success("Proxy added")
       refresh()
     } catch (error) {
@@ -231,6 +247,11 @@ function ProxiesPage() {
         address: editing.address,
         protocol: editing.protocol,
         username: editing.username,
+        provider: editing.provider,
+        target_country: editing.target_country,
+        session_strategy: editing.session_strategy,
+        session_id: editing.session_id,
+        name: editing.name,
         tags: editing.tags ?? [],
       })
       setEditing(null)
@@ -314,6 +335,25 @@ function ProxiesPage() {
       fetchProxies()
     } catch (error) {
       toast.error("Failed to test proxy", error instanceof Error ? error.message : "Unknown error")
+    }
+  }
+
+  const handleObserveExit = async (id: number) => {
+    try {
+      const response = await api.observeProxyExits([id])
+      const exit = response.exits[0]
+      if (!exit) {
+        toast.error("Could not observe exit")
+        return
+      }
+      const expected = exit.configured_country ? ` / configured ${exit.configured_country}` : ""
+      toast.success(
+        `Exit ${exit.exit_country || "?"}${expected}`,
+        [exit.exit_ip, exit.exit_organization].filter(Boolean).join(" · ")
+      )
+      fetchProxies()
+    } catch (error) {
+      toast.error("Exit probe failed", error instanceof Error ? error.message : "Unknown error")
     }
   }
 
@@ -529,8 +569,10 @@ function ProxiesPage() {
                     aria-label="Select all on this page"
                   />
                 </TableHead>
+                <TableHead>Name</TableHead>
                 <SortHeader field="address" sort={url.sort} order={order} onSort={onSort}>Address</SortHeader>
-                <TableHead>Protocol</TableHead>
+                <TableHead>Routing</TableHead>
+                <TableHead>Exit</TableHead>
                 <TableHead>Tags</TableHead>
                 <SortHeader field="status" sort={url.sort} order={order} onSort={onSort}>Status</SortHeader>
                 <SortHeader field="requests" sort={url.sort} order={order} onSort={onSort} align="right">Requests</SortHeader>
@@ -549,11 +591,34 @@ function ProxiesPage() {
                     <TableCell>
                       <Checkbox checked={selected.has(proxy.id)} onCheckedChange={(v) => toggleOne(proxy.id, !!v)} aria-label={`Select ${proxy.address}`} />
                     </TableCell>
+                    <TableCell>
+                      <span className="font-medium">{proxy.name || "—"}</span>
+                    </TableCell>
                     <TableCell className="font-mono">
                       {proxy.address}
                       {proxy.username && <span className="text-muted-foreground ml-2 text-[0.6875rem]">auth</span>}
                     </TableCell>
-                    <TableCell className="text-muted-foreground font-mono">{proxy.protocol}</TableCell>
+                    <TableCell>
+                      <div className="text-xs">
+                        <span>{proxy.provider || proxy.protocol}</span>
+                        {proxy.target_country && <Tag>{proxy.target_country.toUpperCase()}</Tag>}
+                        {proxy.session_strategy && proxy.session_strategy !== "none" && (
+                          <span className="text-muted-foreground ml-1">
+                            {proxy.session_strategy === "per_request" ? "fresh/request" : `fixed:${proxy.session_id || "?"}`}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {proxy.last_exit_country || proxy.last_exit_ip ? (
+                        <div className="text-xs">
+                          <span className="font-medium">{proxy.last_exit_country || "?"}</span>
+                          {proxy.last_exit_ip && <span className="text-muted-foreground ml-1 font-mono">{proxy.last_exit_ip}</span>}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {tags.length === 0 ? (
                         <span className="text-muted-foreground">—</span>
@@ -589,7 +654,8 @@ function ProxiesPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => navigator.clipboard.writeText(proxy.address)}>Copy address</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleTestProxy(proxy.id)}>Test now</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleTestProxy(proxy.id)}>Test connectivity</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleObserveExit(proxy.id)}>Observe actual exit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditing(proxy)}>Edit</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(proxy.id)}>
@@ -616,6 +682,10 @@ function ProxiesPage() {
               <DialogDescription>The proxy joins the inventory as idle and is picked up by the next health check.</DialogDescription>
             </DialogHeader>
             <div className="space-y-1.5">
+              <Label htmlFor="name">Name / label</Label>
+              <Input id="name" placeholder="Bright Data Germany" value={newProxy.name} onChange={(e) => setNewProxy({ ...newProxy, name: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="address">Address</Label>
               <Input id="address" placeholder="192.168.1.100:8001" className="font-mono" required value={newProxy.address} onChange={(e) => setNewProxy({ ...newProxy, address: e.target.value })} />
             </div>
@@ -633,6 +703,38 @@ function ProxiesPage() {
                 <Input id="password" type="password" value={newProxy.password} onChange={(e) => setNewProxy({ ...newProxy, password: e.target.value })} />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="provider">Provider (optional)</Label>
+                <Input id="provider" placeholder="brightdata" value={newProxy.provider} onChange={(e) => setNewProxy({ ...newProxy, provider: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="target-country">Target country</Label>
+                <Input id="target-country" placeholder="DE" maxLength={3} value={newProxy.target_country} onChange={(e) => setNewProxy({ ...newProxy, target_country: e.target.value.toUpperCase() })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="session-strategy">Provider session</Label>
+                <Select value={newProxy.session_strategy} onValueChange={(v) => setNewProxy({ ...newProxy, session_strategy: v as "none" | "per_request" | "fixed" })}>
+                  <SelectTrigger id="session-strategy"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Provider default</SelectItem>
+                    <SelectItem value="per_request">Fresh session per request / CONNECT</SelectItem>
+                    <SelectItem value="fixed">Fixed session (debug)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {newProxy.session_strategy === "fixed" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="session-id">Session ID</Label>
+                  <Input id="session-id" placeholder="debug-de-01" value={newProxy.session_id} onChange={(e) => setNewProxy({ ...newProxy, session_id: e.target.value })} />
+                </div>
+              )}
+            </div>
+            <p className="text-muted-foreground text-[0.6875rem] leading-4">
+              Bright Data: target country and session are materialized into the upstream username. Fresh per request/CONNECT avoids upstream reuse; HTTPS clients must open a new CONNECT when they require one exit per URL.
+            </p>
             <div className="space-y-1.5">
               <Label htmlFor="tags">Tags (optional)</Label>
               <TagInput id="tags" value={newProxy.tags} onChange={(tags) => setNewProxy({ ...newProxy, tags })} suggestions={allTags} />
@@ -656,6 +758,10 @@ function ProxiesPage() {
                 <DialogDescription>Changing the address resets nothing else; stats stay attached to this record.</DialogDescription>
               </DialogHeader>
               <div className="space-y-1.5">
+                <Label htmlFor="edit-name">Name / label</Label>
+                <Input id="edit-name" value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="edit-address">Address</Label>
                 <Input id="edit-address" className="font-mono" required value={editing.address} onChange={(e) => setEditing({ ...editing, address: e.target.value })} />
               </div>
@@ -666,6 +772,35 @@ function ProxiesPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="edit-username">Username (optional)</Label>
                 <Input id="edit-username" value={editing.username || ""} onChange={(e) => setEditing({ ...editing, username: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-provider">Provider</Label>
+                  <Input id="edit-provider" value={editing.provider || ""} onChange={(e) => setEditing({ ...editing, provider: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-target-country">Target country</Label>
+                  <Input id="edit-target-country" maxLength={3} value={editing.target_country || ""} onChange={(e) => setEditing({ ...editing, target_country: e.target.value.toUpperCase() })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-session-strategy">Provider session</Label>
+                  <Select value={editing.session_strategy || "none"} onValueChange={(v) => setEditing({ ...editing, session_strategy: v as "none" | "per_request" | "fixed" })}>
+                    <SelectTrigger id="edit-session-strategy"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Provider default</SelectItem>
+                      <SelectItem value="per_request">Fresh session per request / CONNECT</SelectItem>
+                      <SelectItem value="fixed">Fixed session (debug)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(editing.session_strategy || "none") === "fixed" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-session-id">Session ID</Label>
+                    <Input id="edit-session-id" value={editing.session_id || ""} onChange={(e) => setEditing({ ...editing, session_id: e.target.value })} />
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-tags">Tags</Label>

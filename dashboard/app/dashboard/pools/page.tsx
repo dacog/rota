@@ -58,6 +58,33 @@ const ROTATION_LABELS: Record<string, string> = {
 
 const FLAG = (cc: string) => `https://flagcdn.com/16x12/${cc.toLowerCase()}.png`
 
+const sessionLabel = (strategy?: string, sessionId?: string) => {
+  switch (strategy) {
+    case "per_request":
+      return "fresh / CONNECT"
+    case "fixed":
+      return sessionId ? `fixed: ${sessionId}` : "fixed"
+    default:
+      return "provider default"
+  }
+}
+
+const routingLabel = (proxy: {
+  provider?: string
+  target_country?: string
+  session_strategy?: string
+  session_id?: string
+}) =>
+  [
+    proxy.provider || undefined,
+    proxy.target_country?.toUpperCase(),
+    proxy.session_strategy && proxy.session_strategy !== "none"
+      ? sessionLabel(proxy.session_strategy, proxy.session_id)
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
 const DEFAULT_POOL_FORM: CreatePoolRequest = {
   name: "",
   description: "",
@@ -677,8 +704,10 @@ function PoolsPage() {
                           <Table>
                             <TableHeader>
                               <TableRow>
+                                <TableHead>Name</TableHead>
                                 <TableHead>Address</TableHead>
-                                <TableHead>Location</TableHead>
+                                <TableHead>Routing</TableHead>
+                                <TableHead>Exit</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead className="text-right">Success</TableHead>
                                 <TableHead className="text-right">Response</TableHead>
@@ -688,17 +717,29 @@ function PoolsPage() {
                             <TableBody>
                               {poolProxies.map((pp) => (
                                 <TableRow key={pp.proxy_id}>
+                                  <TableCell>
+                                    <span className="font-medium">{pp.name || "—"}</span>
+                                  </TableCell>
                                   <TableCell className="font-mono">
                                     {pp.address}
                                     <span className="text-muted-foreground ml-2 text-[0.6875rem]">{pp.protocol}</span>
                                   </TableCell>
-                                  <TableCell className="text-muted-foreground">
+                                  <TableCell className="text-muted-foreground text-xs">
+                                    {routingLabel(pp) || "—"}
+                                  </TableCell>
+                                  <TableCell className="text-muted-foreground text-xs">
                                     <span className="inline-flex items-center gap-1.5">
-                                      {pp.country_code && (
+                                      {(pp.last_exit_country || pp.target_country || pp.country_code) && (
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        <img src={FLAG(pp.country_code)} alt="" width={16} height={12} />
+                                        <img
+                                          src={FLAG(pp.last_exit_country || pp.target_country || pp.country_code || "")}
+                                          alt=""
+                                          width={16}
+                                          height={12}
+                                        />
                                       )}
-                                      {pp.city_name || pp.country_name || "—"}
+                                      <span>{pp.last_exit_country || "—"}</span>
+                                      {pp.last_exit_ip && <span className="font-mono">{pp.last_exit_ip}</span>}
                                     </span>
                                   </TableCell>
                                   <TableCell>
@@ -707,7 +748,12 @@ function PoolsPage() {
                                   <TableCell className="num text-right">{percent(pp.success_rate)}</TableCell>
                                   <TableCell className="num text-muted-foreground text-right">{pp.avg_response_time ? ms(pp.avg_response_time) : "—"}</TableCell>
                                   <TableCell className="text-right">
-                                    <Button variant="ghost" size="icon-sm" aria-label={`Remove ${pp.address}`} onClick={() => handleRemoveProxyFromPool(pp.proxy_id)}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      aria-label={`Remove ${pp.name || pp.address}`}
+                                      onClick={() => handleRemoveProxyFromPool(pp.proxy_id)}
+                                    >
                                       <X aria-hidden />
                                     </Button>
                                   </TableCell>
@@ -954,7 +1000,11 @@ function PoolsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="Search by address" value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} className="font-mono" />
+            <Input
+              placeholder="Search by name, address, provider or country"
+              value={pickerSearch}
+              onChange={(e) => setPickerSearch(e.target.value)}
+            />
             <div className="border-border max-h-64 overflow-y-auto rounded-md border">
               {pickerLoading ? (
                 <p className="text-muted-foreground py-6 text-center">Loading…</p>
@@ -966,16 +1016,43 @@ function PoolsPage() {
                     const inPool = poolProxies.some((pp) => pp.proxy_id === p.id)
                     const checked = pickerSelected.includes(p.id)
                     return (
-                      <label key={p.id} className={cn("flex items-center gap-2 px-2.5 py-1.5", inPool ? "opacity-50" : "hover:bg-accent/50 cursor-pointer")}>
+                      <label
+                        key={p.id}
+                        className={cn(
+                          "flex items-start gap-2 px-2.5 py-2",
+                          inPool ? "opacity-50" : "hover:bg-accent/50 cursor-pointer"
+                        )}
+                      >
                         <Checkbox
+                          className="mt-0.5"
                           checked={inPool || checked}
                           disabled={inPool}
-                          onCheckedChange={(v) => setPickerSelected((prev) => (v ? [...prev, p.id] : prev.filter((id) => id !== p.id)))}
+                          onCheckedChange={(v) =>
+                            setPickerSelected((prev) => (v ? [...prev, p.id] : prev.filter((id) => id !== p.id)))
+                          }
                         />
-                        <span className="min-w-0 flex-1 truncate font-mono">{p.address}</span>
-                        <span className="text-muted-foreground font-mono">{p.protocol}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="truncate font-medium">{p.name || p.address}</span>
+                            {p.target_country && <Tag mono>{p.target_country.toUpperCase()}</Tag>}
+                            {p.provider && <Tag>{p.provider}</Tag>}
+                            {inPool && <Tag>in pool</Tag>}
+                          </span>
+                          <span className="text-muted-foreground mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] leading-4">
+                            <span className="truncate font-mono">{p.address}</span>
+                            <span className="font-mono">{p.protocol}</span>
+                            {p.session_strategy && p.session_strategy !== "none" && (
+                              <span>{sessionLabel(p.session_strategy, p.session_id)}</span>
+                            )}
+                            {(p.last_exit_country || p.last_exit_ip) && (
+                              <span>
+                                exit {p.last_exit_country || "?"}
+                                {p.last_exit_ip ? ` · ${p.last_exit_ip}` : ""}
+                              </span>
+                            )}
+                          </span>
+                        </span>
                         <ProxyStatus status={p.status} />
-                        {inPool && <span className="text-muted-foreground">in pool</span>}
                       </label>
                     )
                   })}

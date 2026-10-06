@@ -28,6 +28,8 @@ import {
   UpdateProxyUserRequest,
   PoolAlertRule,
   CreatePoolAlertRuleRequest,
+  ProxyExitObservation,
+  DiagnosticProbeResult,
 } from "./types"
 
 // Empty by default → same-origin: the browser calls /api and /ws on whatever
@@ -261,6 +263,41 @@ class ApiClient {
     return this.request("/api/v1/proxies/reload", {
       method: "POST",
     })
+  }
+
+  async observeProxyExits(proxyIds: number[]): Promise<{ exits: ProxyExitObservation[] }> {
+    return this.request("/api/v1/diagnostics/exits", {
+      method: "POST",
+      body: JSON.stringify({ proxy_ids: proxyIds }),
+    })
+  }
+
+  async probeProxyTargets(req: {
+    urls: string[]
+    proxy_ids: number[]
+    attempts?: number
+    follow_redirects?: boolean
+  }): Promise<{ results: DiagnosticProbeResult[] }> {
+    return this.request("/api/v1/diagnostics/probe", {
+      method: "POST",
+      body: JSON.stringify(req),
+    })
+  }
+
+  async exportUsageCSV(params?: {
+    project?: string
+    from?: string
+    to?: string
+  }): Promise<Blob> {
+    const qs = new URLSearchParams({ format: "csv" })
+    if (params?.project) qs.set("project", params.project)
+    if (params?.from) qs.set("from", params.from)
+    if (params?.to) qs.set("to", params.to)
+    const response = await fetch(`${this.baseUrl}/api/v1/usage/export?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    })
+    if (!response.ok) throw new Error("Usage export failed")
+    return response.blob()
   }
 
   // Logs

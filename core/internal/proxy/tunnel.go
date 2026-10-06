@@ -6,32 +6,35 @@ import (
 	"sync"
 )
 
+// TunnelStats records payload bytes flowing through an HTTPS CONNECT tunnel.
+// BytesUp is client -> upstream and BytesDown is upstream -> client.
+type TunnelStats struct {
+	BytesUp   int64
+	BytesDown int64
+}
+
 // BidirectionalCopy copies data between client and upstream in both directions
-// concurrently. It returns when either direction encounters an error or EOF.
-// On Linux with raw TCP sockets, it attempts splice(2) for zero-copy transfer
-// before falling back to io.Copy.
-func BidirectionalCopy(client, upstream net.Conn) error {
+// concurrently and returns byte counters for project/provider accounting.
+func BidirectionalCopy(client, upstream net.Conn) (TunnelStats, error) {
 	var wg sync.WaitGroup
 	var clientErr, upstreamErr error
+	var stats TunnelStats
 
 	wg.Add(2)
 
-	// upstream → client
+	// upstream -> client
 	go func() {
 		defer wg.Done()
-		clientErr = copyOneDirection(client, upstream)
-		// When upstream closes or errors, half-close the client write side
-		// so the client knows there's no more data coming.
+		stats.BytesDown, clientErr = copyOneDirection(client, upstream)
 		if tc, ok := client.(*net.TCPConn); ok {
 			tc.CloseWrite() //nolint:errcheck
 		}
 	}()
 
-	// client → upstream
+	// client -> upstream
 	go func() {
 		defer wg.Done()
-		upstreamErr = copyOneDirection(upstream, client)
-		// When client closes or errors, half-close the upstream write side.
+		stats.BytesUp, upstreamErr = copyOneDirection(upstream, client)
 		if tc, ok := upstream.(*net.TCPConn); ok {
 			tc.CloseWrite() //nolint:errcheck
 		}
@@ -39,29 +42,23 @@ func BidirectionalCopy(client, upstream net.Conn) error {
 
 	wg.Wait()
 
-	// Return whichever error is more meaningful
 	if clientErr != nil {
-		return clientErr
+		return stats, clientErr
 	}
-	return upstreamErr
+	return stats, upstreamErr
 }
 
 // copyOneDirection copies from src to dst using the most efficient method
-// available on the current platform. On Linux with raw TCP sockets it tries
-// splice(2) first; otherwise it falls back to io.Copy.
-func copyOneDirection(dst, src net.Conn) error {
-	// Try platform-specific zero-copy (splice on Linux)
-	ok, err := trySplice(dst, src)
+// available and returns the number of payload bytes transferred.
+func copyOneDirection(dst, src net.Conn) (int64, error) {
+	ok, n, err := trySplice(dst, src)
 	if ok {
-		return err
+		return n, err
 	}
 
-	// Fallback: standard io.Copy (uses sendfile or splice via Go runtime
-	// when possible, otherwise userspace buffer copy)
 	buf := bufPool.Get().([]byte)
 	defer bufPool.Put(buf)
-	_, err = io.CopyBuffer(dst, src, buf)
-	return err
+	return io.CopyBuffer(dst, src, buf)
 }
 
 // bufPool reuses 32KB buffers for io.CopyBuffer to reduce GC pressure.

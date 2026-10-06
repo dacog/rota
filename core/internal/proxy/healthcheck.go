@@ -83,7 +83,8 @@ func (h *HealthChecker) CheckProxy(ctx context.Context, proxy *models.Proxy, imm
 	}
 
 	// Create HTTP client with proxy
-	transport, err := h.createTransport(proxy)
+	effectiveProxy, _ := PrepareProxyForRequest(proxy)
+	transport, err := h.createTransport(effectiveProxy)
 	if err != nil {
 		result.Status = "failed"
 		errMsg := fmt.Sprintf("failed to create transport: %v", err)
@@ -250,8 +251,9 @@ func (h *HealthChecker) CheckAllProxiesWithProgress(
 	// Get all proxies (including failed ones for re-testing)
 	query := `
 		SELECT
-			id, address, protocol, username, password, status,
-			requests, successful_requests, failed_requests,
+			id, name, address, protocol, username, password,
+			provider, target_country, session_strategy, session_id,
+			status, requests, successful_requests, failed_requests,
 			avg_response_time, last_check, last_error, created_at, updated_at
 		FROM proxies
 		ORDER BY address
@@ -267,7 +269,8 @@ func (h *HealthChecker) CheckAllProxiesWithProgress(
 	for rows.Next() {
 		var p models.Proxy
 		err := rows.Scan(
-			&p.ID, &p.Address, &p.Protocol, &p.Username, &p.Password, &p.Status,
+			&p.ID, &p.Name, &p.Address, &p.Protocol, &p.Username, &p.Password,
+			&p.Provider, &p.TargetCountry, &p.SessionStrategy, &p.SessionID, &p.Status,
 			&p.Requests, &p.SuccessfulRequests, &p.FailedRequests,
 			&p.AvgResponseTime, &p.LastCheck, &p.LastError, &p.CreatedAt, &p.UpdatedAt,
 		)
