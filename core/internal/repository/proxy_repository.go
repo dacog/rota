@@ -241,7 +241,7 @@ func (r *ProxyRepository) Create(ctx context.Context, req models.CreateProxyRequ
 		// Check if it's a unique constraint violation
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, fmt.Errorf("proxy with address %s, protocol %s and username %v already exists", req.Address, req.Protocol, req.Username)
+			return nil, fmt.Errorf("logical proxy configuration already exists for %s (%s)", req.Address, req.Protocol)
 		}
 		return nil, fmt.Errorf("failed to create proxy: %w", err)
 	}
@@ -260,8 +260,14 @@ func (r *ProxyRepository) Upsert(ctx context.Context, req models.CreateProxyRequ
 	// Check if proxy exists
 	var existingID int
 	checkErr := r.db.Pool.QueryRow(ctx,
-		`SELECT id FROM proxies WHERE address=$1 AND protocol=$2 AND COALESCE(username,'')=COALESCE($3,'')`,
-		req.Address, req.Protocol, req.Username,
+		`SELECT id FROM proxies
+		  WHERE address=$1
+		    AND protocol=$2
+		    AND COALESCE(username,'')=COALESCE($3,'')
+		    AND COALESCE(target_country,'')=COALESCE($4,'')
+		    AND session_strategy=COALESCE(NULLIF($5,''),'none')
+		    AND COALESCE(session_id,'')=COALESCE($6,'')`,
+		req.Address, req.Protocol, req.Username, req.TargetCountry, req.SessionStrategy, req.SessionID,
 	).Scan(&existingID)
 
 	if checkErr == pgx.ErrNoRows {
